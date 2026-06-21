@@ -37,6 +37,12 @@ pub enum TopicKind {
     Command,
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ModuleTopics {
+    pub subscribes: &'static [&'static str],
+    pub publishes: &'static [&'static str],
+}
+
 #[derive(Clone, Copy)]
 pub struct Topic<T: Clone + Copy + Send + Sync + 'static> {
     pub name: &'static str,
