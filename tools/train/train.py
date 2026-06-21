@@ -42,6 +42,15 @@ def obs_from_state(state: State) -> torch.Tensor:
     )
 
 
+def pd_force_raw(state: State) -> float:
+    return (
+        120.0 * state.theta
+        + 20.0 * state.theta_dot
+        + state.x
+        + 2.0 * state.x_dot
+    )
+
+
 def act(model: PolicyNet, state: State) -> float:
     with torch.no_grad():
         raw = model(obs_from_state(state)).item()
@@ -79,20 +88,18 @@ def eval_consecutive(model: PolicyNet, rng: random.Random) -> tuple[bool, list[E
 
 
 def train_step(model: PolicyNet, opt: torch.optim.Optimizer) -> float:
-    """one noisy regression step toward upright (manual iteration aid)."""
+    """regress onto unclamped pd output; clamp only at act() like helm."""
     model.train()
     batch = []
     targets = []
-    for _ in range(32):
+    for _ in range(128):
         theta = random.uniform(THETA_INIT_MIN, THETA_INIT_MAX) * random.choice([-1.0, 1.0])
         theta_dot = random.uniform(-0.5, 0.5)
         x = random.uniform(-0.2, 0.2)
         x_dot = random.uniform(-0.5, 0.5)
-        obs = [x, x_dot, theta, theta_dot]
-        target = -(120.0 * theta + 20.0 * theta_dot + x + 2.0 * x_dot)
-        target = max(-FORCE_LIMIT, min(FORCE_LIMIT, target))
-        batch.append(obs)
-        targets.append([target])
+        state = State(x=x, x_dot=x_dot, theta=theta, theta_dot=theta_dot)
+        batch.append([x, x_dot, theta, theta_dot])
+        targets.append([pd_force_raw(state)])
 
     x = torch.tensor(batch, dtype=torch.float32)
     y = torch.tensor(targets, dtype=torch.float32)
