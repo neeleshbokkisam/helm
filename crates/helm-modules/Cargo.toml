@@ -1,0 +1,10 @@
+[package]
+name = "helm-modules"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+helm-core = { path = "../helm-core" }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }

@@ -1,0 +1,16 @@
+[package]
+name = "helm-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "helm"
+path = "src/main.rs"
+
+[dependencies]
+helm-core = { path = "../helm-core" }
+helm-sim = { path = "../helm-sim" }
+helm-modules = { path = "../helm-modules" }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
