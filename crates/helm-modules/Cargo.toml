@@ -3,8 +3,20 @@ name = "helm-modules"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+onnx = ["dep:ort", "dep:ndarray", "dep:serde", "dep:serde_json"]
+
 [dependencies]
 helm-core = { path = "../helm-core" }
 tokio = { workspace = true }
 async-trait = { workspace = true }
 tracing = { workspace = true }
+ort = { workspace = true, optional = true }
+ndarray = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+tempfile = "3"

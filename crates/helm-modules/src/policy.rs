@@ -7,10 +7,13 @@ use helm_core::{
     topics,
 };
 
-const FORCE_LIMIT: f64 = 20.0;
+#[cfg(feature = "onnx")]
+use crate::policy_onnx::PolicyEngine;
 
 pub struct PolicyModule {
     model_path: PathBuf,
+    #[cfg(feature = "onnx")]
+    engine: PolicyEngine,
 }
 
 impl PolicyModule {
@@ -22,15 +25,45 @@ impl PolicyModule {
                 format!("model not found: {}", model_path.display()),
             ));
         }
-        Ok(Self { model_path })
+
+        #[cfg(feature = "onnx")]
+        {
+            let engine = PolicyEngine::load(&model_path)?;
+            return Ok(Self { model_path, engine });
+        }
+
+        #[cfg(not(feature = "onnx"))]
+        {
+            let _ = model_path;
+            Err(ModuleError::Failed(
+                "policy",
+                "build with --features onnx".into(),
+            ))
+        }
     }
 
     pub fn model_path(&self) -> &Path {
         &self.model_path
     }
 
-    fn compute_force_stub(_state: CartPoleState) -> f64 {
-        0.0
+    pub fn infer_force(&self, state: CartPoleState) -> Result<f64, ModuleError> {
+        self.compute_force(state)
+    }
+
+    fn compute_force(&self, state: CartPoleState) -> Result<f64, ModuleError> {
+        #[cfg(feature = "onnx")]
+        {
+            return self.engine.infer_force(state);
+        }
+
+        #[cfg(not(feature = "onnx"))]
+        {
+            let _ = state;
+            Err(ModuleError::Failed(
+                "policy",
+                "build with --features onnx".into(),
+            ))
+        }
     }
 }
 
@@ -54,7 +87,7 @@ impl Module for PolicyModule {
         ctx.bus.publish_watch(
             &topics::FORCE_CMD,
             ForceCommand {
-                force_n: Self::compute_force_stub(initial).clamp(-FORCE_LIMIT, FORCE_LIMIT),
+                force_n: self.compute_force(initial)?,
             },
         )?;
 
@@ -66,7 +99,7 @@ impl Module for PolicyModule {
                         break;
                     }
                     let state = *state_rx.borrow_and_update();
-                    let force_n = Self::compute_force_stub(state).clamp(-FORCE_LIMIT, FORCE_LIMIT);
+                    let force_n = self.compute_force(state)?;
                     ctx.bus.publish_watch(&topics::FORCE_CMD, ForceCommand { force_n })?;
                 }
             }

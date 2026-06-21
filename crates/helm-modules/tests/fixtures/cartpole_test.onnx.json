@@ -1,0 +1,20 @@
+{
+  "observation_name": "observation",
+  "observation_shape": [
+    1,
+    4
+  ],
+  "action_name": "action",
+  "action_shape": [
+    1,
+    1
+  ],
+  "force_limit": 20.0,
+  "params": {
+    "gravity": 9.8,
+    "mass_cart": 1.0,
+    "mass_pole": 0.1,
+    "length": 0.5
+  },
+  "theta_zero": "upright"
+}
