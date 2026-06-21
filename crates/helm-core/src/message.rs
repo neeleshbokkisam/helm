@@ -78,7 +78,7 @@ pub mod topics {
 
     pub const FORCE_CMD: Topic<ForceCommand> = Topic::new(
         "cmd/force",
-        TopicKind::Command,
+        TopicKind::Watch,
         ForceCommand { force_n: 0.0 },
     );
 }

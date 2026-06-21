@@ -15,10 +15,10 @@ const K_X_DOT: f64 = 2.0;
 pub struct StabilizerModule;
 
 fn compute_force(state: CartPoleState) -> f64 {
-    let raw = -K_THETA * state.theta
-        - K_THETA_DOT * state.theta_dot
-        - K_X * state.x
-        - K_X_DOT * state.x_dot;
+    let raw = K_THETA * state.theta
+        + K_THETA_DOT * state.theta_dot
+        + K_X * state.x
+        + K_X_DOT * state.x_dot;
     raw.clamp(-FORCE_LIMIT, FORCE_LIMIT)
 }
 
@@ -36,20 +36,30 @@ impl Module for StabilizerModule {
     }
 
     async fn run(&self, ctx: ModuleContext) -> Result<(), ModuleError> {
-        let mut tick_rx = ctx.bus.subscribe_watch(&topics::TICK)?;
         let mut state_rx = ctx.bus.subscribe_watch(&topics::CART_POLE_STATE)?;
+
+        let initial = *state_rx.borrow();
+        ctx.bus.publish_watch(
+            &topics::FORCE_CMD,
+            ForceCommand {
+                force_n: compute_force(initial),
+            },
+        )?;
 
         loop {
             tokio::select! {
                 _ = ctx.shutdown.cancelled() => break,
-                changed = tick_rx.changed() => {
+                changed = state_rx.changed() => {
                     if changed.is_err() {
                         break;
                     }
-                    let _tick = *tick_rx.borrow_and_update();
-                    let state = *state_rx.borrow();
-                    let force_n = compute_force(state);
-                    ctx.bus.publish_cmd(&topics::FORCE_CMD, ForceCommand { force_n })?;
+                    let state = *state_rx.borrow_and_update();
+                    ctx.bus.publish_watch(
+                        &topics::FORCE_CMD,
+                        ForceCommand {
+                            force_n: compute_force(state),
+                        },
+                    )?;
                 }
             }
         }
@@ -68,6 +78,6 @@ mod tests {
             theta: 0.1,
             ..CartPoleState::INITIAL
         };
-        assert!(compute_force(state) < 0.0);
+        assert!(compute_force(state) > 0.0);
     }
 }

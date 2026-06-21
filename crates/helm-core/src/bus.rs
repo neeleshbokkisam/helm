@@ -306,17 +306,16 @@ mod tests {
     }
 
     #[test]
-    fn cmd_roundtrip() {
+    fn force_cmd_watch_roundtrip() {
         let (mut bus, handle) = TopicBus::new();
         register_all(&mut bus);
 
-        let mut rx = handle.subscribe_cmd(&topics::FORCE_CMD).unwrap();
+        let rx = handle.subscribe_watch(&topics::FORCE_CMD).unwrap();
         handle
-            .publish_cmd(&topics::FORCE_CMD, ForceCommand { force_n: 3.5 })
+            .publish_watch(&topics::FORCE_CMD, ForceCommand { force_n: 3.5 })
             .unwrap();
 
-        let cmd = rx.try_recv().unwrap();
-        assert_eq!(cmd.force_n, 3.5);
+        assert_eq!(rx.borrow().force_n, 3.5);
     }
 
     #[test]

@@ -3,8 +3,7 @@ use std::sync::Mutex;
 use async_trait::async_trait;
 
 use helm_core::{
-    CartPoleState, ForceCommand, Module, ModuleContext, ModuleError, ModuleTopics, module_topics,
-    topics,
+    CartPoleState, Module, ModuleContext, ModuleError, ModuleTopics, module_topics, topics,
 };
 
 use crate::cart_pole::{CartPoleParams, CartPolePhysics};
@@ -45,9 +44,7 @@ impl Module for CartPoleModule {
 
     async fn run(&self, ctx: ModuleContext) -> Result<(), ModuleError> {
         let mut tick_rx = ctx.bus.subscribe_watch(&topics::TICK)?;
-        let mut cmd_rx = ctx.bus.subscribe_cmd(&topics::FORCE_CMD)?;
-
-        let mut force = ForceCommand { force_n: 0.0 };
+        let force_rx = ctx.bus.subscribe_watch(&topics::FORCE_CMD)?;
 
         loop {
             tokio::select! {
@@ -57,10 +54,7 @@ impl Module for CartPoleModule {
                         break;
                     }
                     let tick = *tick_rx.borrow_and_update();
-
-                    while let Ok(cmd) = cmd_rx.try_recv() {
-                        force = cmd;
-                    }
+                    let force = *force_rx.borrow();
 
                     let mut physics = self.physics.lock().expect("physics lock");
                     let state = physics.step(force.force_n, tick.timestamp.dt_secs);
