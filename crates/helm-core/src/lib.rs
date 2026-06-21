@@ -7,5 +7,5 @@ pub mod runtime;
 pub use bus::{BusHandle, TopicBus};
 pub use error::{BusError, HelmError, ModuleError};
 pub use message::*;
-pub use module::{Module, ModuleContext};
+pub use module::{Module, ModuleBus, ModuleContext};
 pub use runtime::Runtime;

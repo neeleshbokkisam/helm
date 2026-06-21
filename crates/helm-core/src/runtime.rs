@@ -1,12 +1,13 @@
+use std::collections::HashSet;
 use std::time::Duration;
 
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::bus::BusHandle;
-use crate::error::{HelmError, ModuleError};
+use crate::error::{BusError, HelmError, ModuleError};
 use crate::message::{Tick, Timestamp, topics};
-use crate::module::{Module, ModuleContext};
+use crate::module::{Module, ModuleBus, ModuleContext};
 
 pub struct Runtime {
     bus: BusHandle,
@@ -15,6 +16,7 @@ pub struct Runtime {
     handles: Vec<JoinHandle<Result<(), ModuleError>>>,
     tick_handle: Option<JoinHandle<()>>,
     started: bool,
+    publishers: HashSet<&'static str>,
 }
 
 impl Runtime {
@@ -26,6 +28,7 @@ impl Runtime {
             handles: Vec::new(),
             tick_handle: None,
             started: false,
+            publishers: HashSet::new(),
         }
     }
 
@@ -34,7 +37,13 @@ impl Runtime {
     }
 
     pub fn add_module(&mut self, module: Box<dyn Module>) -> Result<(), HelmError> {
-        self.bus.validate_module_topics(&module.topics())?;
+        let topics = module.topics();
+        self.bus.validate_module_topics(&topics)?;
+        for name in topics.publishes {
+            if !self.publishers.insert(name) {
+                return Err(BusError::DuplicatePublisher(name).into());
+            }
+        }
         self.modules.push(module);
         Ok(())
     }
@@ -46,8 +55,9 @@ impl Runtime {
 
         let modules = std::mem::take(&mut self.modules);
         for module in modules {
+            let topics = module.topics();
             let ctx = ModuleContext {
-                bus: self.bus.clone(),
+                bus: ModuleBus::new(self.bus.clone(), topics),
                 shutdown: self.shutdown.clone(),
             };
             let handle = tokio::spawn(async move { module.run(ctx).await });
@@ -141,6 +151,32 @@ mod tests {
             },
         };
         assert!(runtime.add_module(Box::new(module)).is_err());
+    }
+
+    #[tokio::test]
+    async fn duplicate_publisher_fails_at_add() {
+        let (mut bus, handle) = TopicBus::new();
+        register_all(&mut bus);
+
+        let mut runtime = Runtime::new(handle);
+        runtime
+            .add_module(Box::new(DummyModule {
+                topics: crate::module_topics! {
+                    sub: [topics::TICK],
+                    publish: [topics::FORCE_CMD],
+                },
+            }))
+            .unwrap();
+
+        assert!(matches!(
+            runtime.add_module(Box::new(DummyModule {
+                topics: crate::module_topics! {
+                    sub: [topics::CART_POLE_STATE],
+                    publish: [topics::FORCE_CMD],
+                },
+            })),
+            Err(HelmError::Bus(BusError::DuplicatePublisher("cmd/force")))
+        ));
     }
 
     #[tokio::test(start_paused = true)]
