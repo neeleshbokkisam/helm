@@ -32,6 +32,8 @@ impl Runtime {
         }
     }
 
+    /// Raw bus handle without topic-declaration enforcement.
+    /// For tests and external recorders only — not for use inside Module impls.
     pub fn bus(&self) -> BusHandle {
         self.bus.clone()
     }
