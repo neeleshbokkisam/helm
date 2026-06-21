@@ -163,8 +163,7 @@ impl BusHandle {
             .downcast_ref::<watch::Sender<T>>()
             .ok_or(BusError::TypeMismatch(topic.name))?;
 
-        tx.send(payload)
-            .map_err(|_| BusError::TypeMismatch(topic.name))
+        tx.send(payload).map_err(|_| BusError::ChannelClosed)
     }
 
     pub fn subscribe_cmd<T: Clone + Copy + Send + Sync + 'static>(
@@ -225,8 +224,11 @@ impl BusHandle {
             .downcast_ref::<mpsc::Sender<T>>()
             .ok_or(BusError::TypeMismatch(topic.name))?;
 
-        tx.try_send(payload)
-            .map_err(|_| BusError::CommandClosed)
+        match tx.try_send(payload) {
+            Ok(()) => Ok(()),
+            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => Err(BusError::ChannelFull),
+            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => Err(BusError::CommandClosed),
+        }
     }
 
     pub fn validate_module_topics(&self, topics: &ModuleTopics) -> Result<(), BusError> {
@@ -347,6 +349,43 @@ mod tests {
         assert!(matches!(
             handle.publish_watch(&topics::TICK, topics::TICK.seed),
             Err(BusError::NotRegistered(_))
+        ));
+    }
+
+    #[test]
+    fn watch_publish_after_all_receivers_dropped() {
+        let (mut bus, handle) = TopicBus::new();
+        register_all(&mut bus);
+
+        let rx = handle.subscribe_watch(&topics::TICK).unwrap();
+        drop(rx);
+
+        assert!(matches!(
+            handle.publish_watch(&topics::TICK, topics::TICK.seed),
+            Err(BusError::ChannelClosed)
+        ));
+    }
+
+    #[test]
+    fn cmd_publish_full_buffer() {
+        #[derive(Clone, Copy)]
+        struct Cmd {
+            _v: u8,
+        }
+
+        static CMD_TOPIC: Topic<Cmd> = Topic::new("test/cmd", TopicKind::Command, Cmd { _v: 0 });
+
+        let (mut bus, handle) = TopicBus::new();
+        bus.register(&CMD_TOPIC).unwrap();
+        let _rx = handle.subscribe_cmd(&CMD_TOPIC).unwrap();
+
+        for i in 0..16 {
+            handle.publish_cmd(&CMD_TOPIC, Cmd { _v: i }).unwrap();
+        }
+
+        assert!(matches!(
+            handle.publish_cmd(&CMD_TOPIC, Cmd { _v: 99 }),
+            Err(BusError::ChannelFull)
         ));
     }
 }

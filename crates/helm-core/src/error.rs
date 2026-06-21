@@ -6,10 +6,20 @@ pub enum BusError {
     UnknownTopic(&'static str),
     #[error("duplicate topic: {0}")]
     DuplicateTopic(&'static str),
+    #[error("duplicate publisher for topic: {0}")]
+    DuplicatePublisher(&'static str),
     #[error("topic type mismatch: {0}")]
     TypeMismatch(&'static str),
     #[error("topic not registered: {0}")]
     NotRegistered(&'static str),
+    #[error("undeclared subscribe: {0}")]
+    UndeclaredSubscribe(&'static str),
+    #[error("undeclared publish: {0}")]
+    UndeclaredPublish(&'static str),
+    #[error("watch channel closed")]
+    ChannelClosed,
+    #[error("command channel full")]
+    ChannelFull,
     #[error("command channel closed")]
     CommandClosed,
 }
