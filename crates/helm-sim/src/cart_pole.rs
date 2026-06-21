@@ -57,12 +57,12 @@ impl CartPolePhysics {
         let x_dot = self.state.x_dot;
         let theta_dot = self.state.theta_dot;
 
-        let ke_cart = 0.5 * m_c * x_dot * x_dot;
-        let ke_pole = 0.5 * m * l * l * theta_dot * theta_dot;
-        let ke_coupling = m * l * x_dot * theta_dot * theta.cos();
+        let ke = 0.5 * (m_c + m) * x_dot * x_dot
+            + m * l * x_dot * theta_dot * theta.cos()
+            + 0.5 * (4.0 / 3.0) * m * l * l * theta_dot * theta_dot;
         let pe = m * g * l * theta.cos();
 
-        ke_cart + ke_pole + ke_coupling + pe
+        ke + pe
     }
 
     fn derivatives(&self, force: f64) -> StateDeriv {
@@ -152,8 +152,8 @@ mod tests {
         }
         let e1 = sim.total_energy();
 
-        // ~10% relative drift at dt=10ms x 1000 steps on this coupled system
+        // same M(q) as derivatives_for(); uniform rod with I = ml²/3
         let rel = (e1 - e0).abs() / e0.abs();
-        assert!(rel < 0.10, "relative energy drift {rel}");
+        assert!(rel < 1e-4, "relative energy drift {rel}");
     }
 }
