@@ -8,16 +8,26 @@ pub struct CartPoleParams {
     pub length: f64,
 }
 
+impl CartPoleParams {
+    pub const DEFAULT: CartPoleParams = CartPoleParams {
+        gravity: 9.8,
+        mass_cart: 1.0,
+        mass_pole: 0.1,
+        length: 0.5,
+    };
+}
+
 impl Default for CartPoleParams {
     fn default() -> Self {
-        Self {
-            gravity: 9.8,
-            mass_cart: 1.0,
-            mass_pole: 0.1,
-            length: 0.5,
-        }
+        Self::DEFAULT
     }
 }
+
+/// default sim timestep (100 hz), matches helm-cli --dt-ms 10
+pub const DEFAULT_DT_SECS: f64 = 0.01;
+
+/// steps used for rust/python physics contract test
+pub const CONTRACT_STEPS: u64 = 500;
 
 pub struct CartPolePhysics {
     params: CartPoleParams,
