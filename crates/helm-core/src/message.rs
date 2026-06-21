@@ -85,7 +85,13 @@ pub mod topics {
 
 #[macro_export]
 macro_rules! module_topics {
-    (sub: [$($sub:expr),* $(,)?], pub: [$($pub:expr),* $(,)?]) => {
+    (sub: [$($sub:expr),* $(,)?], publish: [] $(,)?) => {
+        $crate::ModuleTopics {
+            subscribes: &[$( $sub.name ),*],
+            publishes: &[],
+        }
+    };
+    (sub: [$($sub:expr),* $(,)?], publish: [$($pub:expr),+ $(,)?] $(,)?) => {
         $crate::ModuleTopics {
             subscribes: &[$( $sub.name ),*],
             publishes: &[$( $pub.name ),*],
