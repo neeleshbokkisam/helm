@@ -11,21 +11,20 @@ import torch
 import torch.nn as nn
 
 from env import GRAVITY, LENGTH, MASS_CART, MASS_POLE
+from train import LinearPolicy, PolicyNet, build_model
 
 
-class PolicyNet(nn.Module):
-    def __init__(self, hidden: int = 64) -> None:
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(4, hidden),
-            nn.Tanh(),
-            nn.Linear(hidden, hidden),
-            nn.Tanh(),
-            nn.Linear(hidden, 1),
-        )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.net(x)
+def load_checkpoint(path: Path) -> nn.Module:
+    ckpt = torch.load(path, map_location="cpu", weights_only=False)
+    model_type = ckpt.get("model", "mlp")
+    hidden = ckpt.get("hidden", 64)
+    if model_type == "linear":
+        model, _ = build_model(mlp=False, hidden=hidden)
+    else:
+        model, _ = build_model(mlp=True, hidden=hidden)
+    model.load_state_dict(ckpt["state_dict"])
+    model.eval()
+    return model
 
 
 def main() -> None:
@@ -35,10 +34,7 @@ def main() -> None:
     parser.add_argument("--force-limit", type=float, default=20.0)
     args = parser.parse_args()
 
-    ckpt = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
-    model = PolicyNet(hidden=ckpt.get("hidden", 64))
-    model.load_state_dict(ckpt["state_dict"])
-    model.eval()
+    model = load_checkpoint(args.checkpoint)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     dummy = torch.zeros(1, 4)
