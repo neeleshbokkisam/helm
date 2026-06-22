@@ -19,8 +19,14 @@ struct TopicBusInner {
     cmd: RwLock<CmdRegistry>,
 }
 
-type WatchRegistry =
-    std::collections::HashMap<&'static str, (TypeId, Box<dyn std::any::Any + Send + Sync>)>;
+type WatchRegistry = std::collections::HashMap<
+    &'static str,
+    (
+        TypeId,
+        Box<dyn std::any::Any + Send + Sync>,
+        Box<dyn std::any::Any + Send + Sync>,
+    ),
+>;
 type CmdRegistry = std::collections::HashMap<&'static str, CmdTopic>;
 
 pub struct TopicBus {
@@ -58,12 +64,19 @@ impl TopicBus {
 
         match topic.kind {
             TopicKind::Watch => {
-                let (tx, _rx) = watch::channel(topic.seed);
+                let (tx, rx) = watch::channel(topic.seed);
                 self.inner
                     .watch
                     .write()
                     .expect("watch registry lock")
-                    .insert(topic.name, (TypeId::of::<T>(), Box::new(tx)));
+                    .insert(
+                        topic.name,
+                        (
+                            TypeId::of::<T>(),
+                            Box::new(tx) as Box<dyn std::any::Any + Send + Sync>,
+                            Box::new(rx) as Box<dyn std::any::Any + Send + Sync>,
+                        ),
+                    );
             }
             TopicKind::Command => {
                 let (tx, rx) = mpsc::channel::<T>(16);
@@ -123,7 +136,7 @@ impl BusHandle {
         }
 
         let watch = self.inner.watch.read().expect("watch registry lock");
-        let (type_id, sender) = watch
+        let (type_id, sender, _) = watch
             .get(topic.name)
             .ok_or(BusError::NotRegistered(topic.name))?;
 
@@ -151,7 +164,7 @@ impl BusHandle {
         }
 
         let watch = self.inner.watch.read().expect("watch registry lock");
-        let (type_id, sender) = watch
+        let (type_id, sender, _) = watch
             .get(topic.name)
             .ok_or(BusError::NotRegistered(topic.name))?;
 
@@ -257,6 +270,8 @@ mod tests {
         bus.register(&topics::TICK).unwrap();
         bus.register(&topics::CART_POLE_STATE).unwrap();
         bus.register(&topics::FORCE_CMD).unwrap();
+        bus.register(&topics::FORCE_CMD_SAFE).unwrap();
+        bus.register(&topics::SAFETY_STATUS).unwrap();
     }
 
     #[test]
@@ -353,17 +368,18 @@ mod tests {
     }
 
     #[test]
-    fn watch_publish_after_all_receivers_dropped() {
+    fn watch_publish_survives_subscriber_drop() {
         let (mut bus, handle) = TopicBus::new();
         register_all(&mut bus);
 
         let rx = handle.subscribe_watch(&topics::TICK).unwrap();
         drop(rx);
 
-        assert!(matches!(
-            handle.publish_watch(&topics::TICK, topics::TICK.seed),
-            Err(BusError::ChannelClosed)
-        ));
+        handle
+            .publish_watch(&topics::TICK, topics::TICK.seed)
+            .unwrap();
+        let rx2 = handle.subscribe_watch(&topics::TICK).unwrap();
+        assert_eq!(*rx2.borrow(), topics::TICK.seed);
     }
 
     #[test]

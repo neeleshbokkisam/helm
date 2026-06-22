@@ -27,6 +27,40 @@ pub struct ForceCommand {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SafetyFault {
+    ForceOutOfRange { requested_n: f64, limit_n: f64 },
+    StateStale { ticks_since_update: u64 },
+    CommandStale { ticks_since_update: u64 },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SafetyStatus {
+    pub armed: bool,
+    pub latched_fault: Option<SafetyFault>,
+    pub tick: u64,
+}
+
+impl SafetyStatus {
+    pub const INITIAL: SafetyStatus = SafetyStatus {
+        armed: true,
+        latched_fault: None,
+        tick: 0,
+    };
+}
+
+/// max magnitude forwarded to sim (silent clamp, no fault)
+pub const SAFETY_FORWARD_CLAMP_N: f64 = 18.0;
+/// latch ForceOutOfRange when |intent| exceeds this
+pub const SAFETY_TRIP_LIMIT_N: f64 = 20.0;
+pub const STATE_STALE_MS: u64 = 50;
+pub const CMD_STALE_MS: u64 = 50;
+
+pub fn stale_ticks(stale_ms: u64, dt_ms: u64) -> u64 {
+    let dt = dt_ms.max(1);
+    stale_ms.div_ceil(dt)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tick {
     pub timestamp: Timestamp,
 }
@@ -80,6 +114,18 @@ pub mod topics {
         "cmd/force",
         TopicKind::Watch,
         ForceCommand { force_n: 0.0 },
+    );
+
+    pub const FORCE_CMD_SAFE: Topic<ForceCommand> = Topic::new(
+        "cmd/force_safe",
+        TopicKind::Watch,
+        ForceCommand { force_n: 0.0 },
+    );
+
+    pub const SAFETY_STATUS: Topic<SafetyStatus> = Topic::new(
+        "state/safety",
+        TopicKind::Watch,
+        SafetyStatus::INITIAL,
     );
 }
 

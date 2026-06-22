@@ -86,6 +86,8 @@ mod tests {
         bus.register(&topics::TICK).unwrap();
         bus.register(&topics::CART_POLE_STATE).unwrap();
         bus.register(&topics::FORCE_CMD).unwrap();
+        bus.register(&topics::FORCE_CMD_SAFE).unwrap();
+        bus.register(&topics::SAFETY_STATUS).unwrap();
     }
 
     #[test]
