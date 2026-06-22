@@ -107,7 +107,5 @@ async fn cart_pole_deterministic() {
 
     let a = run_once().await;
     let b = run_once().await;
-    assert!(a.abs() < 0.01, "run a theta {a}");
-    assert!(b.abs() < 0.01, "run b theta {b}");
-    assert!((a - b).abs() < 5e-4, "replay spread too wide: {a} vs {b}");
+    assert_eq!(a, b);
 }

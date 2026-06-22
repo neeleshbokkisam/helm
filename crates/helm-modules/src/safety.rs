@@ -87,8 +87,13 @@ impl Module for SafetyModule {
         let state_stale_ticks = self.config.state_stale_ticks();
         let cmd_stale_ticks = self.config.cmd_stale_ticks();
 
+        let raw = force_rx.borrow().force_n;
+        let out = safe_output(raw, &mut latched);
+        ctx.bus.publish_watch(&topics::FORCE_CMD_SAFE, out)?;
+
         loop {
             tokio::select! {
+                biased;
                 _ = ctx.shutdown.cancelled() => break,
                 changed = force_rx.changed() => {
                     if changed.is_err() {
@@ -98,12 +103,25 @@ impl Module for SafetyModule {
                     ticks_since_cmd = 0;
                     state_changed_since_cmd = false;
 
-                    if latched.is_none() {
-                        let _ = safe_output(raw, &mut latched);
+                    if latched.is_some() {
+                        ctx.bus.publish_watch(
+                            &topics::FORCE_CMD_SAFE,
+                            ForceCommand { force_n: 0.0 },
+                        )?;
+                    } else {
+                        let out = safe_output(raw, &mut latched);
+                        ctx.bus.publish_watch(&topics::FORCE_CMD_SAFE, out)?;
                         if latched.is_some() && self.config.halt_on_fault {
                             ctx.shutdown.cancel();
                         }
                     }
+
+                    let tick = tick_rx.borrow().timestamp.tick;
+                    ctx.bus.publish_watch(&topics::SAFETY_STATUS, SafetyStatus {
+                        armed: true,
+                        latched_fault: latched,
+                        tick,
+                    })?;
                 }
                 changed = state_rx.changed() => {
                     if changed.is_err() {
@@ -135,16 +153,14 @@ impl Module for SafetyModule {
                         }
                     }
 
-                    let raw = force_rx.borrow().force_n;
-                    let out = if latched.is_some() {
-                        ForceCommand { force_n: 0.0 }
-                    } else {
-                        safe_output(raw, &mut latched)
-                    };
-                    ctx.bus.publish_watch(&topics::FORCE_CMD_SAFE, out)?;
-
-                    if latched.is_some() && self.config.halt_on_fault {
-                        ctx.shutdown.cancel();
+                    if latched.is_some() {
+                        ctx.bus.publish_watch(
+                            &topics::FORCE_CMD_SAFE,
+                            ForceCommand { force_n: 0.0 },
+                        )?;
+                        if self.config.halt_on_fault {
+                            ctx.shutdown.cancel();
+                        }
                     }
 
                     ctx.bus.publish_watch(&topics::SAFETY_STATUS, SafetyStatus {
