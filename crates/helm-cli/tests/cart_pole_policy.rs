@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use helm_core::{Runtime, TopicBus, topics};
-use helm_modules::PolicyModule;
+use helm_modules::{PolicyModule, SafetyConfig, SafetyModule};
 use helm_sim::CartPoleModule;
 
 fn fixture(name: &str) -> PathBuf {
@@ -18,6 +18,8 @@ fn register_all(bus: &mut TopicBus) {
     bus.register(&topics::TICK).unwrap();
     bus.register(&topics::CART_POLE_STATE).unwrap();
     bus.register(&topics::FORCE_CMD).unwrap();
+    bus.register(&topics::FORCE_CMD_SAFE).unwrap();
+    bus.register(&topics::SAFETY_STATUS).unwrap();
 }
 
 #[tokio::test(start_paused = true)]
@@ -33,6 +35,9 @@ async fn cart_pole_policy_fixture_stays_bounded() {
         .add_module(Box::new(
             PolicyModule::new(fixture("cartpole_test.onnx")).unwrap(),
         ))
+        .unwrap();
+    runtime
+        .add_module(Box::new(SafetyModule::new(SafetyConfig::new(10))))
         .unwrap();
 
     let thetas = Arc::new(Mutex::new(Vec::new()));

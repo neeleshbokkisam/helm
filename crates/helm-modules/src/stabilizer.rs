@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 
 use helm_core::{
-    CartPoleState, ForceCommand, Module, ModuleContext, ModuleError, ModuleTopics, module_topics,
-    topics,
+    CartPoleState, FaultConfig, FaultKind, ForceCommand, Module, ModuleContext, ModuleError,
+    ModuleTopics, module_topics, topics,
 };
 
 const FORCE_LIMIT: f64 = 20.0;
@@ -12,7 +12,25 @@ const K_THETA_DOT: f64 = 20.0;
 const K_X: f64 = 1.0;
 const K_X_DOT: f64 = 2.0;
 
-pub struct StabilizerModule;
+pub struct StabilizerModule {
+    fault: FaultConfig,
+}
+
+impl StabilizerModule {
+    pub fn new() -> Self {
+        Self::with_fault(FaultConfig::none())
+    }
+
+    pub fn with_fault(fault: FaultConfig) -> Self {
+        Self { fault }
+    }
+}
+
+impl Default for StabilizerModule {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 fn compute_force(state: CartPoleState) -> f64 {
     let raw = K_THETA * state.theta
@@ -37,6 +55,16 @@ impl Module for StabilizerModule {
 
     async fn run(&self, ctx: ModuleContext) -> Result<(), ModuleError> {
         let mut state_rx = ctx.bus.subscribe_watch(&topics::CART_POLE_STATE)?;
+        let tick_rx = ctx.bus.subscribe_watch(&topics::TICK)?;
+
+        let overshoot = match self.fault.kind {
+            Some(FaultKind::ForceOvershoot { at_tick, force_n }) => Some((at_tick, force_n)),
+            _ => None,
+        };
+        let drop_after = match self.fault.kind {
+            Some(FaultKind::DropCommand { after_tick }) => Some(after_tick),
+            _ => None,
+        };
 
         let initial = *state_rx.borrow();
         ctx.bus.publish_watch(
@@ -54,6 +82,21 @@ impl Module for StabilizerModule {
                         break;
                     }
                     let state = *state_rx.borrow_and_update();
+                    let tick = tick_rx.borrow().timestamp.tick;
+
+                    if drop_after.is_some_and(|after| tick > after) {
+                        continue;
+                    }
+
+                    if overshoot.is_some_and(|(at, _)| tick == at) {
+                        let force_n = overshoot.unwrap().1;
+                        ctx.bus.publish_watch(
+                            &topics::FORCE_CMD,
+                            ForceCommand { force_n },
+                        )?;
+                        continue;
+                    }
+
                     ctx.bus.publish_watch(
                         &topics::FORCE_CMD,
                         ForceCommand {
