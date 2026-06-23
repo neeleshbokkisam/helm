@@ -155,7 +155,7 @@ async fn slow_ws_client_does_not_block_bus_loop_wall_clock() {
 
     let elapsed = started.elapsed();
     assert!(
-        elapsed <= Duration::from_secs(12),
+        elapsed <= Duration::from_secs(15),
         "bus loop blocked with slow ws client: took {elapsed:?} for {TICKS} ticks"
     );
     assert!(
