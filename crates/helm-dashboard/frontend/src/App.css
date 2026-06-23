@@ -1,0 +1,115 @@
+:root {
+  color-scheme: dark;
+  font-family: system-ui, sans-serif;
+  background: #0f1115;
+  color: #e8eaed;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.app {
+  max-width: 420px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 1rem;
+}
+
+h1 {
+  font-size: 1.1rem;
+  margin: 0;
+  font-weight: 600;
+}
+
+h2 {
+  font-size: 0.85rem;
+  margin: 0 0 0.5rem;
+  color: #9aa0a6;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.meta {
+  display: flex;
+  gap: 0.75rem;
+  font-size: 0.85rem;
+  color: #9aa0a6;
+}
+
+.status.connected {
+  color: #22c55e;
+}
+
+.status.reconnecting {
+  color: #eab308;
+}
+
+.status.disconnected {
+  color: #ef4444;
+}
+
+.panel {
+  background: #181b22;
+  border: 1px solid #2a2f3a;
+  border-radius: 8px;
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.pole-view,
+.force-chart {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.readout {
+  font-size: 1.25rem;
+  font-variant-numeric: tabular-nums;
+  margin-top: 0.25rem;
+}
+
+.safety-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem;
+  border-radius: 6px;
+}
+
+.safety-badge.ok {
+  background: #132819;
+  border: 1px solid #1f4d32;
+}
+
+.safety-badge.fault {
+  background: #2a1414;
+  border: 1px solid #5c2020;
+}
+
+.safety-badge .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #22c55e;
+}
+
+.safety-badge.fault .dot {
+  background: #ef4444;
+}
+
+.safety-badge .sub {
+  font-size: 0.85rem;
+  color: #9aa0a6;
+}
