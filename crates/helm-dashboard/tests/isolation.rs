@@ -90,12 +90,12 @@ async fn slow_ws_client_does_not_block_bus_loop() {
 
     let ticks = tokio::spawn(async move {
         runtime
-            .run_for_ticks(300, Duration::from_millis(10))
+            .run_for_ticks(2000, Duration::from_millis(10))
             .await
     });
 
     let started = tokio::time::Instant::now();
-    for _ in 0..300 {
+    for _ in 0..2000 {
         tokio::time::advance(Duration::from_millis(10)).await;
         tokio::task::yield_now().await;
     }
@@ -105,7 +105,63 @@ async fn slow_ws_client_does_not_block_bus_loop() {
     bus_loop.await.unwrap().unwrap();
     shutdown.cancel();
 
-    assert!(started.elapsed() <= Duration::from_millis(3100));
+    assert!(started.elapsed() <= Duration::from_millis(21_000));
+}
+
+#[tokio::test]
+async fn slow_ws_client_does_not_block_bus_loop_wall_clock() {
+    let (mut bus, handle) = TopicBus::new();
+    register_all(&mut bus);
+
+    let shutdown = CancellationToken::new();
+    let server = try_start_server(
+        0,
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("frontend/dist"),
+        shutdown.clone(),
+    )
+    .await
+    .unwrap();
+
+    let url = format!("ws://{}/ws", server.addr);
+    let _slow_client = tokio::spawn(async move {
+        let (ws, _) = connect_async(&url).await.unwrap();
+        std::future::pending::<()>().await;
+        drop(ws);
+    });
+
+    for _ in 0..20 {
+        tokio::task::yield_now().await;
+    }
+
+    let mut runtime = Runtime::new(handle.clone());
+    let loop_shutdown = CancellationToken::new();
+    let topics = DashboardModule::new(DashboardConfig::new(0)).topics();
+    let ctx = ModuleContext {
+        bus: ModuleBus::new(runtime.bus(), topics),
+        shutdown: loop_shutdown.clone(),
+    };
+
+    let bus_loop = tokio::spawn(async move { run_bus_loop(ctx, Some(server.tx)).await });
+
+    const TICKS: u64 = 1000;
+    const DT: Duration = Duration::from_millis(10);
+    let ticks = tokio::spawn(async move { runtime.run_for_ticks(TICKS, DT).await });
+
+    let started = std::time::Instant::now();
+    ticks.await.unwrap().unwrap();
+    loop_shutdown.cancel();
+    bus_loop.await.unwrap().unwrap();
+    shutdown.cancel();
+
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed <= Duration::from_secs(12),
+        "bus loop blocked with slow ws client: took {elapsed:?} for {TICKS} ticks"
+    );
+    assert!(
+        elapsed >= Duration::from_secs(9),
+        "finished suspiciously fast for real-time ticks: {elapsed:?}"
+    );
 }
 
 #[test]
