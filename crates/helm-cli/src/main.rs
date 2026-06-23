@@ -6,6 +6,9 @@ use helm_core::{FaultConfig, FaultKind, Runtime, TopicBus, topics};
 use helm_modules::{LoggerModule, SafetyConfig, SafetyModule, StabilizerModule};
 use helm_sim::CartPoleModule;
 
+#[cfg(feature = "dashboard")]
+use helm_dashboard::{DashboardConfig, DashboardModule};
+
 #[cfg(feature = "onnx")]
 use helm_modules::PolicyModule;
 
@@ -22,6 +25,10 @@ struct RunOptions {
     csv: Option<PathBuf>,
     fault: FaultConfig,
     halt_on_fault: bool,
+    #[cfg(feature = "dashboard")]
+    dashboard: bool,
+    #[cfg(feature = "dashboard")]
+    dashboard_port: u16,
     #[cfg(feature = "onnx")]
     controller: Controller,
     #[cfg(feature = "onnx")]
@@ -32,6 +39,8 @@ fn usage() {
     eprintln!("usage: helm [--seconds N] [--dt-ms N] [--csv PATH]");
     eprintln!("       [--fault force-overshoot|stale-state|dropped-cmd --fault-at N]");
     eprintln!("       [--halt-on-fault]");
+    #[cfg(feature = "dashboard")]
+    eprintln!("       [--dashboard [--dashboard-port N]]");
     #[cfg(feature = "onnx")]
     eprintln!("       [--controller stabilizer|policy [--model PATH]]");
 }
@@ -43,6 +52,10 @@ fn parse_args() -> Result<RunOptions, String> {
     let mut fault_name = None;
     let mut fault_at = None;
     let mut halt_on_fault = false;
+    #[cfg(feature = "dashboard")]
+    let mut dashboard = false;
+    #[cfg(feature = "dashboard")]
+    let mut dashboard_port = 8080u16;
     #[cfg(feature = "onnx")]
     let mut controller = Controller::Stabilizer;
     #[cfg(feature = "onnx")]
@@ -78,6 +91,16 @@ fn parse_args() -> Result<RunOptions, String> {
                 );
             }
             "--halt-on-fault" => halt_on_fault = true,
+            #[cfg(feature = "dashboard")]
+            "--dashboard" => dashboard = true,
+            #[cfg(feature = "dashboard")]
+            "--dashboard-port" => {
+                dashboard_port = args
+                    .next()
+                    .ok_or("missing value for --dashboard-port")?
+                    .parse()
+                    .map_err(|_| "invalid --dashboard-port")?;
+            }
             #[cfg(feature = "onnx")]
             "--controller" => {
                 controller = match args.next().ok_or("missing value for --controller")?.as_str() {
@@ -128,6 +151,10 @@ fn parse_args() -> Result<RunOptions, String> {
         csv,
         fault,
         halt_on_fault,
+        #[cfg(feature = "dashboard")]
+        dashboard,
+        #[cfg(feature = "dashboard")]
+        dashboard_port,
         #[cfg(feature = "onnx")]
         controller,
         #[cfg(feature = "onnx")]
@@ -165,6 +192,13 @@ async fn run(opts: RunOptions) -> Result<(), Box<dyn std::error::Error>> {
 
     runtime.add_module(Box::new(SafetyModule::new(safety_config)))?;
     runtime.add_module(Box::new(LoggerModule::new(opts.csv)))?;
+
+    #[cfg(feature = "dashboard")]
+    if opts.dashboard {
+        runtime.add_module(Box::new(DashboardModule::new(DashboardConfig::new(
+            opts.dashboard_port,
+        ))))?;
+    }
 
     let ticks = opts.seconds * 1000 / opts.dt_ms.max(1);
     runtime
