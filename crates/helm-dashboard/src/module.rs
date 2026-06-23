@@ -108,13 +108,14 @@ impl Module for DashboardModule {
     }
 
     async fn run(&self, ctx: ModuleContext) -> Result<(), ModuleError> {
-        let tx = match crate::server::try_start_server(self.config.port, ctx.shutdown.clone())
+        let tx = match crate::server::try_start_server(
+            self.config.port,
+            self.config.static_dir.clone(),
+            ctx.shutdown.clone(),
+        )
         .await
         {
-            Ok(server) => {
-                let _ = server.addr;
-                Some(server.tx)
-            }
+            Ok(server) => Some(server.tx),
             Err(e) => {
                 error!(
                     "dashboard: failed to bind port {} — live UI disabled; control loop continues ({e})",

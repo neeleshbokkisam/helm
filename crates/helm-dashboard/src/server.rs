@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::path::PathBuf;
 
 use axum::{
     Router,
@@ -29,6 +30,7 @@ pub struct StartedServer {
 
 pub async fn try_start_server(
     port: u16,
+    static_dir: PathBuf,
     shutdown: CancellationToken,
 ) -> Result<StartedServer, String> {
     let listener = TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], port)))
@@ -45,6 +47,7 @@ pub async fn try_start_server(
 
     let app = Router::new()
         .route("/ws", get(ws_handler))
+        .fallback_service(crate::static_files::service(static_dir))
         .with_state(state);
 
     tokio::spawn(async move {
@@ -104,7 +107,7 @@ mod tests {
     #[tokio::test]
     async fn websocket_receives_broadcast_json() {
         let shutdown = CancellationToken::new();
-        let StartedServer { tx, addr } = try_start_server(0, shutdown.clone())
+        let StartedServer { tx, addr } = try_start_server(0, PathBuf::from("/nonexistent"), shutdown.clone())
             .await
             .unwrap();
 
