@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+#[cfg(test)]
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -46,7 +47,7 @@ impl DashboardModule {
     }
 }
 
-pub(crate) fn push_snapshot(
+pub fn push_snapshot(
     tx: &broadcast::Sender<String>,
     snapshot: TickSnapshot,
 ) {
@@ -56,7 +57,7 @@ pub(crate) fn push_snapshot(
     let _ = tx.send(json);
 }
 
-pub(crate) async fn run_bus_loop(
+pub async fn run_bus_loop(
     ctx: ModuleContext,
     tx: Option<broadcast::Sender<String>>,
 ) -> Result<(), ModuleError> {
