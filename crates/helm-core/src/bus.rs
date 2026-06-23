@@ -19,6 +19,8 @@ struct TopicBusInner {
     cmd: RwLock<CmdRegistry>,
 }
 
+// Third tuple slot is a hold-receiver kept alive for the topic lifetime; publish
+// succeeds with no module subscribers (silent-by-design — not proof of a live consumer).
 type WatchRegistry = std::collections::HashMap<
     &'static str,
     (
