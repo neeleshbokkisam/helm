@@ -1,10 +1,12 @@
-#[derive(Clone, Copy, Debug, PartialEq)]
+use serde::Serialize;
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 pub struct Timestamp {
     pub tick: u64,
     pub dt_secs: f64,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 pub struct CartPoleState {
     pub x: f64,
     pub x_dot: f64,
@@ -21,19 +23,19 @@ impl CartPoleState {
     };
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 pub struct ForceCommand {
     pub force_n: f64,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 pub enum SafetyFault {
     ForceOutOfRange { requested_n: f64, limit_n: f64 },
     StateStale { ticks_since_update: u64 },
     CommandStale { ticks_since_update: u64 },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 pub struct SafetyStatus {
     pub armed: bool,
     pub latched_fault: Option<SafetyFault>,
@@ -60,7 +62,7 @@ pub fn stale_ticks(stale_ms: u64, dt_ms: u64) -> u64 {
     stale_ms.div_ceil(dt)
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 pub struct Tick {
     pub timestamp: Timestamp,
 }
@@ -143,4 +145,15 @@ macro_rules! module_topics {
             publishes: &[$( $pub.name ),*],
         }
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cart_pole_state_serializes() {
+        let json = serde_json::to_string(&CartPoleState::INITIAL).unwrap();
+        assert!(json.contains("\"theta\":0.05"));
+    }
 }
