@@ -16,8 +16,15 @@ fn register_all(bus: &mut TopicBus) {
     bus.register(&topics::SAFETY_STATUS).unwrap();
 }
 
+/// Paused-time, fully virtual: lagging broadcast receiver only (no TCP).
+/// Virtual tick count can be large; wall time should stay well under one second.
 #[tokio::test(start_paused = true)]
-async fn lagging_broadcast_subscriber_does_not_block_bus_loop() {
+async fn lagging_broadcast_does_not_block_bus_loop_at_many_ticks() {
+    const TICKS: u64 = 5000;
+    const DT: Duration = Duration::from_millis(10);
+
+    let wall_start = std::time::Instant::now();
+
     let (mut bus, handle) = TopicBus::new();
     register_all(&mut bus);
 
@@ -34,15 +41,10 @@ async fn lagging_broadcast_subscriber_does_not_block_bus_loop() {
 
     let bus_loop = tokio::spawn(async move { run_bus_loop(ctx, Some(tx)).await });
 
-    let ticks = tokio::spawn(async move {
-        runtime
-            .run_for_ticks(300, Duration::from_millis(10))
-            .await
-    });
+    let ticks = tokio::spawn(async move { runtime.run_for_ticks(TICKS, DT).await });
 
-    let started = tokio::time::Instant::now();
-    for _ in 0..300 {
-        tokio::time::advance(Duration::from_millis(10)).await;
+    for _ in 0..TICKS {
+        tokio::time::advance(DT).await;
         tokio::task::yield_now().await;
     }
 
@@ -50,64 +52,14 @@ async fn lagging_broadcast_subscriber_does_not_block_bus_loop() {
     shutdown.cancel();
     bus_loop.await.unwrap().unwrap();
 
-    assert!(started.elapsed() <= Duration::from_millis(3100));
+    assert!(
+        wall_start.elapsed() < Duration::from_secs(5),
+        "paused virtual test took too long in wall time: {:?} (expected << 1s normally)",
+        wall_start.elapsed()
+    );
 }
 
-#[tokio::test(start_paused = true)]
-async fn slow_ws_client_does_not_block_bus_loop() {
-    let (mut bus, handle) = TopicBus::new();
-    register_all(&mut bus);
-
-    let shutdown = CancellationToken::new();
-    let server = try_start_server(
-        0,
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("frontend/dist"),
-        shutdown.clone(),
-    )
-    .await
-    .unwrap();
-
-    let url = format!("ws://{}/ws", server.addr);
-    let _slow_client = tokio::spawn(async move {
-        let (ws, _) = connect_async(&url).await.unwrap();
-        std::future::pending::<()>().await;
-        drop(ws);
-    });
-
-    for _ in 0..10 {
-        tokio::task::yield_now().await;
-    }
-
-    let mut runtime = Runtime::new(handle.clone());
-    let loop_shutdown = CancellationToken::new();
-    let topics = DashboardModule::new(DashboardConfig::new(0)).topics();
-    let ctx = ModuleContext {
-        bus: ModuleBus::new(runtime.bus(), topics),
-        shutdown: loop_shutdown.clone(),
-    };
-
-    let bus_loop = tokio::spawn(async move { run_bus_loop(ctx, Some(server.tx)).await });
-
-    let ticks = tokio::spawn(async move {
-        runtime
-            .run_for_ticks(2000, Duration::from_millis(10))
-            .await
-    });
-
-    let started = tokio::time::Instant::now();
-    for _ in 0..2000 {
-        tokio::time::advance(Duration::from_millis(10)).await;
-        tokio::task::yield_now().await;
-    }
-
-    ticks.await.unwrap().unwrap();
-    loop_shutdown.cancel();
-    bus_loop.await.unwrap().unwrap();
-    shutdown.cancel();
-
-    assert!(started.elapsed() <= Duration::from_millis(21_000));
-}
-
+/// Real wall-clock time with a silent TCP WebSocket client that never reads.
 #[tokio::test]
 async fn slow_ws_client_does_not_block_bus_loop_wall_clock() {
     let (mut bus, handle) = TopicBus::new();
@@ -134,11 +86,10 @@ async fn slow_ws_client_does_not_block_bus_loop_wall_clock() {
     }
 
     let mut runtime = Runtime::new(handle.clone());
-    let loop_shutdown = CancellationToken::new();
     let topics = DashboardModule::new(DashboardConfig::new(0)).topics();
     let ctx = ModuleContext {
         bus: ModuleBus::new(runtime.bus(), topics),
-        shutdown: loop_shutdown.clone(),
+        shutdown: shutdown.clone(),
     };
 
     let bus_loop = tokio::spawn(async move { run_bus_loop(ctx, Some(server.tx)).await });
@@ -149,9 +100,8 @@ async fn slow_ws_client_does_not_block_bus_loop_wall_clock() {
 
     let started = std::time::Instant::now();
     ticks.await.unwrap().unwrap();
-    loop_shutdown.cancel();
-    bus_loop.await.unwrap().unwrap();
     shutdown.cancel();
+    bus_loop.await.unwrap().unwrap();
 
     let elapsed = started.elapsed();
     assert!(
