@@ -6,6 +6,8 @@ members = [
     "crates/helm-modules",
     "crates/helm-cli",
     "crates/helm-dashboard",
+    "crates/helm-wire",
+    "crates/helm-hardware",
 ]
 
 [workspace.dependencies]

@@ -1,0 +1,8 @@
+[package]
+name = "helm-wire"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+helm-core = { path = "../helm-core" }
+thiserror = { workspace = true }
