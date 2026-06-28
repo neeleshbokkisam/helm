@@ -12,6 +12,7 @@ helm-core = { path = "../helm-core" }
 helm-sim = { path = "../helm-sim" }
 helm-modules = { path = "../helm-modules" }
 helm-dashboard = { path = "../helm-dashboard", optional = true }
+helm-hardware = { path = "../helm-hardware", optional = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
@@ -20,6 +21,17 @@ tracing-subscriber = { workspace = true }
 default = []
 onnx = ["helm-modules/onnx"]
 dashboard = ["dep:helm-dashboard"]
+hardware = ["dep:helm-hardware"]
+
+[[test]]
+name = "hardware_plant_swap"
+path = "tests/hardware_plant_swap.rs"
+required-features = ["hardware"]
+
+[[test]]
+name = "hardware_link_down"
+path = "tests/hardware_link_down.rs"
+required-features = ["hardware"]
 
 [[test]]
 name = "cart_pole_policy"

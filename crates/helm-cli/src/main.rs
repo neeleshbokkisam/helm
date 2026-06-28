@@ -6,11 +6,24 @@ use helm_core::{FaultConfig, FaultKind, Runtime, TopicBus, topics};
 use helm_modules::{LoggerModule, SafetyConfig, SafetyModule, StabilizerModule};
 use helm_sim::CartPoleModule;
 
+#[cfg(feature = "hardware")]
+use helm_hardware::{DeviceFaultConfig, HardwareConfig, HardwarePlantModule};
+
 #[cfg(feature = "dashboard")]
 use helm_dashboard::{DashboardConfig, DashboardModule};
 
 #[cfg(feature = "onnx")]
 use helm_modules::PolicyModule;
+
+#[cfg(not(feature = "hardware"))]
+type Backend = ();
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(feature = "hardware")]
+enum Backend {
+    Sim,
+    Hardware,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg(feature = "onnx")]
@@ -25,6 +38,14 @@ struct RunOptions {
     csv: Option<PathBuf>,
     fault: FaultConfig,
     halt_on_fault: bool,
+    #[cfg(feature = "hardware")]
+    backend: Backend,
+    #[cfg(feature = "hardware")]
+    spawn_fake_device: bool,
+    #[cfg(feature = "hardware")]
+    pty_path: Option<PathBuf>,
+    #[cfg(feature = "hardware")]
+    device_fault: DeviceFaultConfig,
     #[cfg(feature = "dashboard")]
     dashboard: bool,
     #[cfg(feature = "dashboard")]
@@ -39,6 +60,11 @@ fn usage() {
     eprintln!("usage: helm [--seconds N] [--dt-ms N] [--csv PATH]");
     eprintln!("       [--fault force-overshoot|stale-state|dropped-cmd --fault-at N]");
     eprintln!("       [--halt-on-fault]");
+    #[cfg(feature = "hardware")]
+    {
+        eprintln!("       [--backend sim|hardware [--spawn-fake-device | --pty-path PATH]]");
+        eprintln!("       [--device-fault drop-bytes|corrupt-crc|silent|link-down --device-fault-at N]");
+    }
     #[cfg(feature = "dashboard")]
     eprintln!("       [--dashboard [--dashboard-port N]]");
     #[cfg(feature = "onnx")]
@@ -52,6 +78,16 @@ fn parse_args() -> Result<RunOptions, String> {
     let mut fault_name = None;
     let mut fault_at = None;
     let mut halt_on_fault = false;
+    #[cfg(feature = "hardware")]
+    let mut backend = Backend::Sim;
+    #[cfg(feature = "hardware")]
+    let mut spawn_fake_device = false;
+    #[cfg(feature = "hardware")]
+    let mut pty_path = None;
+    #[cfg(feature = "hardware")]
+    let mut device_fault_name = None;
+    #[cfg(feature = "hardware")]
+    let mut device_fault_at = None;
     #[cfg(feature = "dashboard")]
     let mut dashboard = false;
     #[cfg(feature = "dashboard")]
@@ -91,6 +127,33 @@ fn parse_args() -> Result<RunOptions, String> {
                 );
             }
             "--halt-on-fault" => halt_on_fault = true,
+            #[cfg(feature = "hardware")]
+            "--backend" => {
+                backend = match args.next().ok_or("missing value for --backend")?.as_str() {
+                    "sim" => Backend::Sim,
+                    "hardware" => Backend::Hardware,
+                    other => return Err(format!("unknown backend: {other}")),
+                };
+            }
+            #[cfg(feature = "hardware")]
+            "--spawn-fake-device" => spawn_fake_device = true,
+            #[cfg(feature = "hardware")]
+            "--pty-path" => {
+                pty_path = Some(PathBuf::from(args.next().ok_or("missing value for --pty-path")?))
+            }
+            #[cfg(feature = "hardware")]
+            "--device-fault" => {
+                device_fault_name = Some(args.next().ok_or("missing value for --device-fault")?);
+            }
+            #[cfg(feature = "hardware")]
+            "--device-fault-at" => {
+                device_fault_at = Some(
+                    args.next()
+                        .ok_or("missing value for --device-fault-at")?
+                        .parse()
+                        .map_err(|_| "invalid --device-fault-at")?,
+                );
+            }
             #[cfg(feature = "dashboard")]
             "--dashboard" => dashboard = true,
             #[cfg(feature = "dashboard")]
@@ -125,6 +188,13 @@ fn parse_args() -> Result<RunOptions, String> {
         _ => return Err("--fault and --fault-at must be used together".into()),
     };
 
+    #[cfg(feature = "hardware")]
+    let device_fault = match (device_fault_name, device_fault_at) {
+        (None, None) => DeviceFaultConfig::none(),
+        (Some(name), Some(at)) => DeviceFaultConfig::from_cli(&name, at)?,
+        _ => return Err("--device-fault and --device-fault-at must be used together".into()),
+    };
+
     #[cfg(feature = "onnx")]
     if controller == Controller::Policy && model.is_none() {
         return Err("--model required with --controller policy".into());
@@ -151,6 +221,14 @@ fn parse_args() -> Result<RunOptions, String> {
         csv,
         fault,
         halt_on_fault,
+        #[cfg(feature = "hardware")]
+        backend,
+        #[cfg(feature = "hardware")]
+        spawn_fake_device,
+        #[cfg(feature = "hardware")]
+        pty_path,
+        #[cfg(feature = "hardware")]
+        device_fault,
         #[cfg(feature = "dashboard")]
         dashboard,
         #[cfg(feature = "dashboard")]
@@ -174,6 +252,30 @@ async fn run(opts: RunOptions) -> Result<(), Box<dyn std::error::Error>> {
     safety_config.halt_on_fault = opts.halt_on_fault;
 
     let mut runtime = Runtime::new(handle);
+    #[cfg(feature = "hardware")]
+    match opts.backend {
+        Backend::Sim => {
+            runtime.add_module(Box::new(CartPoleModule::with_fault(opts.fault)))?;
+        }
+        Backend::Hardware => {
+            let mut hw_config = HardwareConfig::new(opts.dt_ms);
+            hw_config.device_fault = opts.device_fault;
+            let plant = if opts.spawn_fake_device {
+                HardwarePlantModule::new(hw_config).with_spawned_device()?
+            } else if let Some(path) = opts.pty_path {
+                let master = tokio::fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(&path)
+                    .await?;
+                HardwarePlantModule::new(hw_config).with_master(master)
+            } else {
+                return Err("--spawn-fake-device or --pty-path required for hardware backend".into());
+            };
+            runtime.add_module(Box::new(plant))?;
+        }
+    }
+    #[cfg(not(feature = "hardware"))]
     runtime.add_module(Box::new(CartPoleModule::with_fault(opts.fault)))?;
 
     #[cfg(feature = "onnx")]
