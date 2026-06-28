@@ -1,0 +1,23 @@
+[package]
+name = "helm-hardware"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+helm-core = { path = "../helm-core" }
+helm-sim = { path = "../helm-sim" }
+helm-wire = { path = "../helm-wire" }
+async-trait = { workspace = true }
+nix = { version = "0.29", features = ["term"] }
+libc = "0.2"
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["io-util", "io-std", "process", "fs", "sync"] }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+
+[[bin]]
+name = "helm-fake-device"
+path = "src/bin/fake_device.rs"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }
