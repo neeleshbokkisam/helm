@@ -34,6 +34,11 @@ path = "tests/hardware_link_down.rs"
 required-features = ["hardware"]
 
 [[test]]
+name = "hardware_sim_delta_analysis"
+path = "tests/hardware_sim_delta_analysis.rs"
+required-features = ["hardware"]
+
+[[test]]
 name = "cart_pole_policy"
 path = "tests/cart_pole_policy.rs"
 required-features = ["onnx"]

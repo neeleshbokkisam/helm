@@ -55,7 +55,7 @@ impl Module for StabilizerModule {
 
     async fn run(&self, ctx: ModuleContext) -> Result<(), ModuleError> {
         let mut state_rx = ctx.bus.subscribe_watch(&topics::CART_POLE_STATE)?;
-        let tick_rx = ctx.bus.subscribe_watch(&topics::TICK)?;
+        let mut tick_rx = ctx.bus.subscribe_watch(&topics::TICK)?;
 
         let overshoot = match self.fault.kind {
             Some(FaultKind::ForceOvershoot { at_tick, force_n }) => Some((at_tick, force_n)),
@@ -77,6 +77,35 @@ impl Module for StabilizerModule {
         loop {
             tokio::select! {
                 _ = ctx.shutdown.cancelled() => break,
+                changed = tick_rx.changed() => {
+                    if changed.is_err() {
+                        break;
+                    }
+                    let _ = tick_rx.borrow_and_update();
+                    let state = *state_rx.borrow();
+                    let tick = tick_rx.borrow().timestamp.tick;
+
+                    if drop_after.is_some_and(|after| tick > after) {
+                        continue;
+                    }
+
+                    if overshoot.is_some_and(|(at, force_n)| tick == at) {
+                        ctx.bus.publish_watch(
+                            &topics::FORCE_CMD,
+                            ForceCommand {
+                                force_n: overshoot.unwrap().1,
+                            },
+                        )?;
+                        continue;
+                    }
+
+                    ctx.bus.publish_watch(
+                        &topics::FORCE_CMD,
+                        ForceCommand {
+                            force_n: compute_force(state),
+                        },
+                    )?;
+                }
                 changed = state_rx.changed() => {
                     if changed.is_err() {
                         break;

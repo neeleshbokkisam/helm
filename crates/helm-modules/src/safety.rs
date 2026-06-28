@@ -137,7 +137,9 @@ impl Module for SafetyModule {
                     }
                     let tick = tick_rx.borrow_and_update().timestamp.tick;
                     ticks_since_state = ticks_since_state.saturating_add(1);
-                    ticks_since_cmd = ticks_since_cmd.saturating_add(1);
+                    if state_changed_since_cmd {
+                        ticks_since_cmd = ticks_since_cmd.saturating_add(1);
+                    }
 
                     if latched.is_none() {
                         if ticks_since_state >= state_stale_ticks {
@@ -159,6 +161,13 @@ impl Module for SafetyModule {
                             ForceCommand { force_n: 0.0 },
                         )?;
                         if self.config.halt_on_fault {
+                            ctx.shutdown.cancel();
+                        }
+                    } else {
+                        let raw = force_rx.borrow().force_n;
+                        let out = safe_output(raw, &mut latched);
+                        ctx.bus.publish_watch(&topics::FORCE_CMD_SAFE, out)?;
+                        if latched.is_some() && self.config.halt_on_fault {
                             ctx.shutdown.cancel();
                         }
                     }
