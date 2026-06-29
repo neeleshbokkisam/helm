@@ -34,8 +34,8 @@ path = "tests/hardware_link_down.rs"
 required-features = ["hardware"]
 
 [[test]]
-name = "hardware_sim_delta_analysis"
-path = "tests/hardware_sim_delta_analysis.rs"
+name = "hardware_steady_state_stale"
+path = "tests/hardware_steady_state_stale.rs"
 required-features = ["hardware"]
 
 [[test]]

@@ -7,6 +7,7 @@ pub const RSP_STATE: u8 = 0x81;
 
 const FORCE_SCALE: f64 = 1000.0;
 const LENGTH_SCALE: f64 = 1000.0;
+/// 1 µrad quantization; identical consecutive samples are common and do not notify watch subscribers.
 const ANGLE_SCALE: f64 = 1_000_000.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

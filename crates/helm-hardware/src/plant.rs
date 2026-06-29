@@ -112,6 +112,8 @@ impl Module for HardwarePlantModule {
                         {
                             Ok(Some(rsp)) => {
                                 let state = rsp.to_cart_pole_state();
+                                // watch skips changed() on bit-identical payloads; fixed-point
+                                // quantization makes repeated-value ticks common here.
                                 if ctx
                                     .bus
                                     .publish_watch(&topics::CART_POLE_STATE, state)
