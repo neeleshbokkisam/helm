@@ -1,7 +1,11 @@
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
+static MODELED_BAUD: AtomicU32 = AtomicU32::new(0);
+
 use nix::pty::{openpty, Winsize};
+use nix::sys::termios::{cfmakeraw, tcgetattr, tcsetattr, SetArg};
 use nix::unistd::{dup2, fork, ForkResult};
 use std::io::{Read, Write};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -31,23 +35,69 @@ fn child_work(buf: &[u8]) {
     let _ = acc;
 }
 
+fn byte_time(nbytes: usize) -> Option<Duration> {
+    let baud = MODELED_BAUD.load(Ordering::Relaxed);
+    if baud == 0 {
+        return None;
+    }
+    Some(Duration::from_secs_f64(10.0 * nbytes as f64 / f64::from(baud)))
+}
+
 fn child_loop() -> ! {
+    let mut stdin = unsafe { std::fs::File::from_raw_fd(0) };
+    let mut stdout = unsafe { std::fs::File::from_raw_fd(1) };
     let mut buf = [0u8; 64];
     loop {
-        let n = std::io::stdin().read(&mut buf).unwrap_or(0);
+        let n = stdin.read(&mut buf).unwrap_or(0);
         if n == 0 {
             std::process::exit(0);
         }
         child_work(&buf[..n]);
-        std::io::stdout().write_all(&buf[..n]).unwrap();
-        std::io::stdout().flush().unwrap();
+        if let Some(delay) = byte_time(n) {
+            std::thread::sleep(delay);
+        }
+        stdout.write_all(&buf[..n]).unwrap();
+        stdout.flush().unwrap();
     }
+}
+
+fn parse_args() -> (String, u32, usize) {
+    let mut mode = "raw".to_string();
+    let mut baud = 0u32;
+    let mut iterations = ITERATIONS;
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--child" => child_loop(),
+            "--mode" => mode = args.next().expect("missing --mode"),
+            "--baud" => {
+                baud = args
+                    .next()
+                    .expect("missing --baud")
+                    .parse()
+                    .expect("invalid --baud");
+            }
+            "--iterations" => {
+                iterations = args
+                    .next()
+                    .expect("missing --iterations")
+                    .parse()
+                    .expect("invalid --iterations");
+            }
+            other => panic!("unknown arg: {other}"),
+        }
+    }
+    if mode == "modeled" && baud == 0 {
+        panic!("--baud is required for --mode modeled");
+    }
+    (mode, baud, iterations)
 }
 
 #[tokio::main]
 async fn main() {
-    if std::env::args().nth(1).as_deref() == Some("--child") {
-        child_loop();
+    let (mode, baud, iterations) = parse_args();
+    if mode == "modeled" {
+        MODELED_BAUD.store(baud, Ordering::Relaxed);
     }
 
     let winsize = Winsize {
@@ -57,8 +107,11 @@ async fn main() {
         ws_ypixel: 0,
     };
     let openpty_result = openpty(Some(&winsize), None).expect("openpty");
-    let master_raw = openpty_result.master.as_raw_fd();
+    let master_raw = openpty_result.master.into_raw_fd();
     let slave = openpty_result.slave;
+    let mut termios = tcgetattr(&slave).expect("tcgetattr");
+    cfmakeraw(&mut termios);
+    tcsetattr(&slave, SetArg::TCSANOW, &termios).expect("tcsetattr");
 
     match unsafe { fork() }.expect("fork") {
         ForkResult::Parent { .. } => {}
@@ -82,9 +135,12 @@ async fn main() {
         master_file.read_exact(&mut resp).await.unwrap();
     }
 
-    let mut rtts_ms = Vec::with_capacity(ITERATIONS);
-    for _ in 0..ITERATIONS {
+    let mut rtts_ms = Vec::with_capacity(iterations);
+    for _ in 0..iterations {
         let t0 = Instant::now();
+        if let Some(delay) = byte_time(PAYLOAD.len()) {
+            tokio::time::sleep(delay).await;
+        }
         master_file.write_all(&PAYLOAD).await.unwrap();
         master_file.flush().await.unwrap();
         let mut resp = [0u8; PAYLOAD.len()];
@@ -100,6 +156,13 @@ async fn main() {
     let mean: f64 = rtts_ms.iter().sum::<f64>() / rtts_ms.len() as f64;
 
     println!("bench: tokio async parent, forked child, 32-byte echo + tiny work");
+    println!("mode: {mode}");
+    if mode == "modeled" {
+        println!("baud: {baud}");
+        println!("note: modeled 8N1 byte time on a PTY, not a UART");
+    } else {
+        println!("note: raw PTY, termios baud is not set");
+    }
     println!("iterations: {}", rtts_ms.len());
     println!("median_ms: {median:.4}");
     println!("p99_ms: {p99:.4}");
