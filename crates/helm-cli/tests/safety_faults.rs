@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use helm_core::{BusHandle, FaultConfig, FaultKind, Runtime, SafetyFault, TopicBus, topics};
+use helm_core::{topics, BusHandle, FaultConfig, FaultKind, Runtime, SafetyFault, TopicBus};
 use helm_modules::{SafetyConfig, SafetyModule, StabilizerModule};
 use helm_sim::CartPoleModule;
 
@@ -90,9 +90,9 @@ async fn force_overshoot_latched_and_never_forwarded() {
 
     let post = samples.iter().filter(|s| s.tick >= 50).collect::<Vec<_>>();
     assert!(post.iter().any(|s| s.fault.is_some()));
-    assert!(post.iter().any(|s| {
-        matches!(s.fault, Some(SafetyFault::ForceOutOfRange { .. }))
-    }));
+    assert!(post
+        .iter()
+        .any(|s| { matches!(s.fault, Some(SafetyFault::ForceOutOfRange { .. })) }));
     for s in post.iter().filter(|s| s.fault.is_some()) {
         assert_eq!(s.force_safe, 0.0);
     }
@@ -107,11 +107,13 @@ async fn stale_state_latches_and_zeros_force() {
 
     let pre: Vec<_> = samples.iter().filter(|s| s.tick <= 80).collect();
     let post: Vec<_> = samples.iter().filter(|s| s.tick >= 90).collect();
-    assert!(pre.windows(2).any(|w| (w[1].theta - w[0].theta).abs() > 1e-9));
+    assert!(pre
+        .windows(2)
+        .any(|w| (w[1].theta - w[0].theta).abs() > 1e-9));
 
-    assert!(post.iter().any(|s| {
-        matches!(s.fault, Some(SafetyFault::StateStale { .. }))
-    }));
+    assert!(post
+        .iter()
+        .any(|s| { matches!(s.fault, Some(SafetyFault::StateStale { .. })) }));
     for s in post.iter().filter(|s| s.fault.is_some()) {
         assert_eq!(s.force_safe, 0.0);
     }
@@ -125,9 +127,9 @@ async fn dropped_command_latches_and_zeros_force() {
     let samples = run_and_record(fault, 10, 150).await;
 
     let post: Vec<_> = samples.iter().filter(|s| s.tick >= 95).collect();
-    assert!(post.iter().any(|s| {
-        matches!(s.fault, Some(SafetyFault::CommandStale { .. }))
-    }));
+    assert!(post
+        .iter()
+        .any(|s| { matches!(s.fault, Some(SafetyFault::CommandStale { .. })) }));
     for s in post.iter().filter(|s| s.fault.is_some()) {
         assert_eq!(s.force_safe, 0.0);
     }

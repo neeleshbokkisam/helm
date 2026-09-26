@@ -50,7 +50,10 @@ fn rust_python_trajectory_match_zero_force() {
     for (i, (r, p)) in rust.iter().zip(python.iter()).enumerate() {
         for (j, (&rv, &pv)) in r.iter().zip(p.iter()).enumerate() {
             let diff = (rv - pv).abs();
-            assert!(diff < 1e-10, "step {i} component {j}: rust={rv} python={pv}");
+            assert!(
+                diff < 1e-10,
+                "step {i} component {j}: rust={rv} python={pv}"
+            );
         }
     }
 }

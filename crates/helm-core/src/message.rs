@@ -106,17 +106,11 @@ pub mod topics {
         },
     );
 
-    pub const CART_POLE_STATE: Topic<CartPoleState> = Topic::new(
-        "state/cart_pole",
-        TopicKind::Watch,
-        CartPoleState::INITIAL,
-    );
+    pub const CART_POLE_STATE: Topic<CartPoleState> =
+        Topic::new("state/cart_pole", TopicKind::Watch, CartPoleState::INITIAL);
 
-    pub const FORCE_CMD: Topic<ForceCommand> = Topic::new(
-        "cmd/force",
-        TopicKind::Watch,
-        ForceCommand { force_n: 0.0 },
-    );
+    pub const FORCE_CMD: Topic<ForceCommand> =
+        Topic::new("cmd/force", TopicKind::Watch, ForceCommand { force_n: 0.0 });
 
     pub const FORCE_CMD_SAFE: Topic<ForceCommand> = Topic::new(
         "cmd/force_safe",
@@ -124,11 +118,8 @@ pub mod topics {
         ForceCommand { force_n: 0.0 },
     );
 
-    pub const SAFETY_STATUS: Topic<SafetyStatus> = Topic::new(
-        "state/safety",
-        TopicKind::Watch,
-        SafetyStatus::INITIAL,
-    );
+    pub const SAFETY_STATUS: Topic<SafetyStatus> =
+        Topic::new("state/safety", TopicKind::Watch, SafetyStatus::INITIAL);
 }
 
 #[macro_export]

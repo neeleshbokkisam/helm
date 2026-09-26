@@ -79,8 +79,8 @@ pub trait Module: Send + Sync + 'static {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::TopicBus;
     use crate::message::topics;
+    use crate::TopicBus;
 
     fn register_all(bus: &mut TopicBus) {
         bus.register(&topics::TICK).unwrap();

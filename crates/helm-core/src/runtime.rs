@@ -6,7 +6,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::bus::BusHandle;
 use crate::error::{BusError, HelmError, ModuleError};
-use crate::message::{Tick, Timestamp, topics};
+use crate::message::{topics, Tick, Timestamp};
 use crate::module::{Module, ModuleBus, ModuleContext};
 
 pub struct Runtime {
@@ -110,8 +110,8 @@ impl Runtime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::TopicBus;
     use crate::message::ModuleTopics;
+    use crate::TopicBus;
     use async_trait::async_trait;
 
     struct DummyModule {

@@ -6,9 +6,7 @@ use async_trait::async_trait;
 use tokio::sync::broadcast;
 use tracing::error;
 
-use helm_core::{
-    Module, ModuleContext, ModuleError, ModuleTopics, module_topics, topics,
-};
+use helm_core::{module_topics, topics, Module, ModuleContext, ModuleError, ModuleTopics};
 
 use crate::snapshot::TickSnapshot;
 
@@ -47,10 +45,7 @@ impl DashboardModule {
     }
 }
 
-pub fn push_snapshot(
-    tx: &broadcast::Sender<String>,
-    snapshot: TickSnapshot,
-) {
+pub fn push_snapshot(tx: &broadcast::Sender<String>, snapshot: TickSnapshot) {
     let Some(json) = snapshot.to_json() else {
         return;
     };
@@ -133,7 +128,7 @@ impl Module for DashboardModule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use helm_core::{Runtime, TopicBus, Timestamp};
+    use helm_core::{Runtime, Timestamp, TopicBus};
 
     fn register_all(bus: &mut TopicBus) {
         bus.register(&topics::TICK).unwrap();
@@ -160,9 +155,8 @@ mod tests {
 
         let loop_handle = tokio::spawn(async move { run_bus_loop(ctx, Some(tx)).await });
 
-        let run = tokio::spawn(async move {
-            runtime.run_for_ticks(3, Duration::from_millis(10)).await
-        });
+        let run =
+            tokio::spawn(async move { runtime.run_for_ticks(3, Duration::from_millis(10)).await });
 
         for _ in 0..3 {
             tokio::time::advance(Duration::from_millis(10)).await;
@@ -193,9 +187,8 @@ mod tests {
 
         let loop_handle = tokio::spawn(async move { run_bus_loop(ctx, None).await });
 
-        let run = tokio::spawn(async move {
-            runtime.run_for_ticks(2, Duration::from_millis(10)).await
-        });
+        let run =
+            tokio::spawn(async move { runtime.run_for_ticks(2, Duration::from_millis(10)).await });
 
         for _ in 0..2 {
             tokio::time::advance(Duration::from_millis(10)).await;

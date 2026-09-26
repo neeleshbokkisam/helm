@@ -4,10 +4,10 @@ use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::path::PathBuf;
 
 use helm_sim::{CartPoleParams, CartPolePhysics};
-use helm_wire::{FrameParser, ParsedPayload, RspState, decode_payload};
+use helm_wire::{decode_payload, FrameParser, ParsedPayload, RspState};
 
 use helm_hardware::config::{DeviceFaultConfig, DeviceFaultKind};
-use helm_hardware::session::{WireSession, write_frame_sync};
+use helm_hardware::session::{write_frame_sync, WireSession};
 
 #[cfg(unix)]
 fn set_raw_fd(fd: i32) {
@@ -49,14 +49,15 @@ fn main() {
         }
     };
 
-    let mut physics = CartPolePhysics::new(
-        CartPoleParams::default(),
-        helm_core::CartPoleState::INITIAL,
-    );
+    let mut physics =
+        CartPolePhysics::new(CartPoleParams::default(), helm_core::CartPoleState::INITIAL);
     let mut parser = FrameParser::new();
     let mut wire = WireSession::new();
     let mut buf = [0u8; 256];
-    let fault = opts.device_fault.kind.map(|k| (k, opts.device_fault.at_tick));
+    let fault = opts
+        .device_fault
+        .kind
+        .map(|k| (k, opts.device_fault.at_tick));
 
     if let Some(pty) = opts.pty {
         let mut file = std::fs::OpenOptions::new()
@@ -68,11 +69,20 @@ fn main() {
                 std::process::exit(1);
             });
         set_raw_fd(file.as_raw_fd());
-        run_loop(&mut file, &mut physics, &mut parser, &mut wire, &mut buf, fault);
+        run_loop(
+            &mut file,
+            &mut physics,
+            &mut parser,
+            &mut wire,
+            &mut buf,
+            fault,
+        );
     } else {
         set_raw_stdio();
-        let mut reader = unsafe { std::fs::File::from_raw_fd(libc::dup(std::io::stdin().as_raw_fd())) };
-        let mut writer = unsafe { std::fs::File::from_raw_fd(libc::dup(std::io::stdout().as_raw_fd())) };
+        let mut reader =
+            unsafe { std::fs::File::from_raw_fd(libc::dup(std::io::stdin().as_raw_fd())) };
+        let mut writer =
+            unsafe { std::fs::File::from_raw_fd(libc::dup(std::io::stdout().as_raw_fd())) };
         run_stdio(
             &mut reader,
             &mut writer,
@@ -163,7 +173,9 @@ struct Options {
 
 fn usage() {
     eprintln!("usage: helm-fake-device [--pty PATH] [--dt-ms N]");
-    eprintln!("       [--device-fault drop-bytes|corrupt-crc|silent|link-down --device-fault-at N]");
+    eprintln!(
+        "       [--device-fault drop-bytes|corrupt-crc|silent|link-down --device-fault-at N]"
+    );
     eprintln!("  Without --pty, reads stdin and writes stdout (spawned-on-slave mode).");
 }
 

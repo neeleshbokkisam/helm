@@ -47,7 +47,9 @@ pub struct ParsedFrame {
 enum ParseState {
     HuntSync,
     Len,
-    Type { len: u8 },
+    Type {
+        len: u8,
+    },
     Body {
         msg_type: u8,
         len: u8,
@@ -122,11 +124,7 @@ impl FrameParser {
             } => {
                 buf.push(byte);
                 if buf.len() < len as usize {
-                    self.state = ParseState::Body {
-                        msg_type,
-                        len,
-                        buf,
-                    };
+                    self.state = ParseState::Body { msg_type, len, buf };
                 } else {
                     self.state = ParseState::CrcHigh {
                         msg_type,

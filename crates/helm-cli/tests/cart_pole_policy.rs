@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use helm_core::{Runtime, TopicBus, topics};
+use helm_core::{topics, Runtime, TopicBus};
 use helm_modules::{PolicyModule, SafetyConfig, SafetyModule};
 use helm_sim::CartPoleModule;
 
@@ -28,9 +28,7 @@ async fn cart_pole_policy_fixture_stays_bounded() {
     register_all(&mut topic_bus);
 
     let mut runtime = Runtime::new(bus.clone());
-    runtime
-        .add_module(Box::new(CartPoleModule::new()))
-        .unwrap();
+    runtime.add_module(Box::new(CartPoleModule::new())).unwrap();
     runtime
         .add_module(Box::new(
             PolicyModule::new(fixture("cartpole_test.onnx")).unwrap(),
@@ -82,9 +80,6 @@ async fn cart_pole_policy_fixture_stays_bounded() {
         assert!(theta.abs() < 0.3, "theta {theta} out of bounds");
     }
 
-    let max = window
-        .iter()
-        .map(|(_, t)| t.abs())
-        .fold(0.0_f64, f64::max);
+    let max = window.iter().map(|(_, t)| t.abs()).fold(0.0_f64, f64::max);
     assert!(max < 0.25, "max theta {max}");
 }

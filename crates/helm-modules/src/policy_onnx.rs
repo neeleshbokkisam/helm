@@ -25,12 +25,10 @@ pub struct PolicyEngine {
 impl PolicyEngine {
     pub fn load(model_path: &Path) -> Result<Self, ModuleError> {
         let meta_path = PathBuf::from(format!("{}.json", model_path.display()));
-        let meta_text = std::fs::read_to_string(&meta_path).map_err(|e| {
-            ModuleError::Failed("policy", format!("read metadata: {e}"))
-        })?;
-        let meta: ModelMeta = serde_json::from_str(&meta_text).map_err(|e| {
-            ModuleError::Failed("policy", format!("parse metadata: {e}"))
-        })?;
+        let meta_text = std::fs::read_to_string(&meta_path)
+            .map_err(|e| ModuleError::Failed("policy", format!("read metadata: {e}")))?;
+        let meta: ModelMeta = serde_json::from_str(&meta_text)
+            .map_err(|e| ModuleError::Failed("policy", format!("parse metadata: {e}")))?;
 
         if meta.observation_shape != [1, 4] || meta.action_shape != [1, 1] {
             return Err(ModuleError::Failed(
@@ -39,8 +37,8 @@ impl PolicyEngine {
             ));
         }
 
-        let mut builder = Session::builder()
-            .map_err(|e| ModuleError::Failed("policy", e.to_string()))?;
+        let mut builder =
+            Session::builder().map_err(|e| ModuleError::Failed("policy", e.to_string()))?;
         let session = builder
             .commit_from_file(model_path)
             .map_err(|e| ModuleError::Failed("policy", e.to_string()))?;
@@ -54,12 +52,17 @@ impl PolicyEngine {
     pub fn infer_force(&self, state: CartPoleState) -> Result<f64, ModuleError> {
         let input = Array2::from_shape_vec(
             (1, 4),
-            vec![state.x as f32, state.x_dot as f32, state.theta as f32, state.theta_dot as f32],
+            vec![
+                state.x as f32,
+                state.x_dot as f32,
+                state.theta as f32,
+                state.theta_dot as f32,
+            ],
         )
         .map_err(|e| ModuleError::Failed("policy", e.to_string()))?;
 
-        let tensor = Tensor::from_array(input)
-            .map_err(|e| ModuleError::Failed("policy", e.to_string()))?;
+        let tensor =
+            Tensor::from_array(input).map_err(|e| ModuleError::Failed("policy", e.to_string()))?;
 
         let mut session = self.session.lock().expect("policy session lock");
         let outputs = session

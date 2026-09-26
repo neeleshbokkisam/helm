@@ -3,8 +3,8 @@ use std::sync::Mutex;
 use async_trait::async_trait;
 
 use helm_core::{
-    CartPoleState, FaultConfig, FaultKind, Module, ModuleContext, ModuleError, ModuleTopics,
-    module_topics, topics,
+    module_topics, topics, CartPoleState, FaultConfig, FaultKind, Module, ModuleContext,
+    ModuleError, ModuleTopics,
 };
 
 use crate::cart_pole::{CartPoleParams, CartPolePhysics};

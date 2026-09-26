@@ -2,13 +2,13 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use axum::{
-    Router,
     extract::{
-        State,
         ws::{Message, WebSocket, WebSocketUpgrade},
+        State,
     },
     response::IntoResponse,
     routing::get,
+    Router,
 };
 use futures_util::{SinkExt, StreamExt};
 use tokio::net::TcpListener;
@@ -107,9 +107,10 @@ mod tests {
     #[tokio::test]
     async fn websocket_receives_broadcast_json() {
         let shutdown = CancellationToken::new();
-        let StartedServer { tx, addr } = try_start_server(0, PathBuf::from("/nonexistent"), shutdown.clone())
-            .await
-            .unwrap();
+        let StartedServer { tx, addr } =
+            try_start_server(0, PathBuf::from("/nonexistent"), shutdown.clone())
+                .await
+                .unwrap();
 
         let url = format!("ws://{addr}/ws");
         let connect = tokio::spawn(async move {

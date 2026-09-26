@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use helm_hardware::config::{DeviceFaultConfig, HardwareConfig};
-use helm_hardware::session::{WireSession, cmd_from_force, roundtrip_set_force};
+use helm_hardware::session::{cmd_from_force, roundtrip_set_force, WireSession};
 use helm_hardware::transport::connect_fake_device;
 
 #[tokio::test]

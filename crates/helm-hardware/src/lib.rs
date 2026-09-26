@@ -4,8 +4,7 @@ pub mod session;
 pub mod transport;
 
 pub use config::{
-    DeviceFaultConfig, DeviceFaultKind, HardwareConfig, HOST_RESERVE_MS,
-    hardware_response_timeout,
+    hardware_response_timeout, DeviceFaultConfig, DeviceFaultKind, HardwareConfig, HOST_RESERVE_MS,
 };
 pub use plant::HardwarePlantModule;
 pub use transport::{

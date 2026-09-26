@@ -4,9 +4,7 @@ use std::path::PathBuf;
 
 use async_trait::async_trait;
 
-use helm_core::{
-    Module, ModuleContext, ModuleError, ModuleTopics, module_topics, topics,
-};
+use helm_core::{module_topics, topics, Module, ModuleContext, ModuleError, ModuleTopics};
 
 pub struct LoggerModule {
     csv_path: Option<PathBuf>,
@@ -50,9 +48,8 @@ impl Module for LoggerModule {
 
         let mut writer = match &self.csv_path {
             Some(path) => {
-                let file = File::create(path).map_err(|e| {
-                    ModuleError::Failed("logger", e.to_string())
-                })?;
+                let file =
+                    File::create(path).map_err(|e| ModuleError::Failed("logger", e.to_string()))?;
                 let mut w = BufWriter::new(file);
                 writeln!(
                     w,

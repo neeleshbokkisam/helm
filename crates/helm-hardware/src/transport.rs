@@ -23,9 +23,7 @@ fn slave_path(master: &impl AsRawFd) -> io::Result<PathBuf> {
         if ptr.is_null() {
             return Err(io::Error::last_os_error());
         }
-        std::ffi::CStr::from_ptr(ptr)
-            .to_string_lossy()
-            .into_owned()
+        std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned()
     };
     Ok(PathBuf::from(path))
 }
@@ -108,13 +106,7 @@ pub fn connect_fake_device(
     let io = open_tokio_pty(io_fd)?;
     drop(master);
 
-    Ok((
-        PtyEndpoints {
-            io,
-            slave_path,
-        },
-        child,
-    ))
+    Ok((PtyEndpoints { io, slave_path }, child))
 }
 
 pub fn open_pty_endpoints() -> io::Result<PtyEndpoints> {

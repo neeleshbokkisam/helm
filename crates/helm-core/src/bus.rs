@@ -309,7 +309,9 @@ mod tests {
             x: 1.0,
             ..CartPoleState::INITIAL
         };
-        handle.publish_watch(&topics::CART_POLE_STATE, state).unwrap();
+        handle
+            .publish_watch(&topics::CART_POLE_STATE, state)
+            .unwrap();
 
         assert_eq!(rx1.borrow().x, 1.0);
         assert_eq!(rx2.borrow().x, 1.0);

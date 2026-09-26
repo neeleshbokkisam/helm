@@ -2,7 +2,7 @@ use std::io::{Read, Write};
 use std::os::unix::io::AsRawFd;
 use std::time::Duration;
 
-use helm_wire::{CMD_SET_FORCE, FrameParser, RSP_STATE, RspState, CmdSetForce, encode_frame};
+use helm_wire::{encode_frame, CmdSetForce, FrameParser, RspState, CMD_SET_FORCE, RSP_STATE};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::config::DeviceFaultKind;
@@ -158,9 +158,11 @@ pub async fn roundtrip_set_force(
     let frame = wire.encode_set_force(cmd).to_vec();
     let tick = cmd.tick;
     let mut std_io = io.try_clone().await?.into_std().await;
-    tokio::task::spawn_blocking(move || blocking_roundtrip(&mut std_io, &frame, fault, tick, timeout))
-        .await
-        .map_err(|e| std::io::Error::other(e.to_string()))?
+    tokio::task::spawn_blocking(move || {
+        blocking_roundtrip(&mut std_io, &frame, fault, tick, timeout)
+    })
+    .await
+    .map_err(|e| std::io::Error::other(e.to_string()))?
 }
 
 pub fn spawn_reader(

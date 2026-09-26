@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use helm_core::{SafetyFault, TopicBus, topics};
+use helm_core::{topics, SafetyFault, TopicBus};
 use helm_hardware::{DeviceFaultConfig, DeviceFaultKind, HardwareConfig, HardwarePlantModule};
 use helm_modules::{SafetyConfig, SafetyModule, StabilizerModule};
 
@@ -81,13 +81,18 @@ async fn link_down_latches_state_stale_and_zeros_force() {
     let fault_at = 100u32;
     let samples = run_link_down_at(fault_at, 150, dt_ms).await;
 
-    let pre: Vec<_> = samples.iter().filter(|s| s.tick <= fault_at as u64).collect();
-    assert!(pre.windows(2).any(|w| (w[1].force_safe - w[0].force_safe).abs() > 1e-9));
+    let pre: Vec<_> = samples
+        .iter()
+        .filter(|s| s.tick <= fault_at as u64)
+        .collect();
+    assert!(pre
+        .windows(2)
+        .any(|w| (w[1].force_safe - w[0].force_safe).abs() > 1e-9));
 
     let post: Vec<_> = samples.iter().filter(|s| s.tick >= 110).collect();
-    assert!(post.iter().any(|s| {
-        matches!(s.fault, Some(SafetyFault::StateStale { .. }))
-    }));
+    assert!(post
+        .iter()
+        .any(|s| { matches!(s.fault, Some(SafetyFault::StateStale { .. })) }));
     for s in post.iter().filter(|s| s.fault.is_some()) {
         assert_eq!(s.force_safe, 0.0);
     }

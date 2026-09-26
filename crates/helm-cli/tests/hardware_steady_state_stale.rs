@@ -1,7 +1,7 @@
 //! 120 s hardware soak: no spurious StateStale/CommandStale during steady-state plateaus.
 use std::time::Duration;
 
-use helm_core::{Runtime, SafetyFault, TopicBus, topics};
+use helm_core::{topics, Runtime, SafetyFault, TopicBus};
 use helm_hardware::{HardwareConfig, HardwarePlantModule};
 use helm_modules::{SafetyConfig, SafetyModule, StabilizerModule};
 
@@ -27,7 +27,9 @@ async fn hardware_120s_no_spurious_stale_faults() {
         .unwrap();
 
     let mut runtime = Runtime::new(handle.clone());
-    runtime.add_module(Box::new(StabilizerModule::new())).unwrap();
+    runtime
+        .add_module(Box::new(StabilizerModule::new()))
+        .unwrap();
     runtime
         .add_module(Box::new(SafetyModule::new(SafetyConfig::new(dt_ms))))
         .unwrap();

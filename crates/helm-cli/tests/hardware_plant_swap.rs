@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use helm_core::{Runtime, TopicBus, topics};
+use helm_core::{topics, Runtime, TopicBus};
 use helm_hardware::{HardwareConfig, HardwarePlantModule, HOST_RESERVE_MS};
 use helm_modules::{SafetyConfig, SafetyModule, StabilizerModule};
 use helm_sim::CartPoleModule;
@@ -37,9 +37,7 @@ async fn run_sim_reference(ticks: u64, dt_ms: u64) -> Vec<Sample> {
     runtime
         .add_module(Box::new(SafetyModule::new(SafetyConfig::new(dt_ms))))
         .unwrap();
-    runtime
-        .add_module(Box::new(CartPoleModule::new()))
-        .unwrap();
+    runtime.add_module(Box::new(CartPoleModule::new())).unwrap();
 
     let samples = Arc::new(Mutex::new(Vec::new()));
     let samples_rec = Arc::clone(&samples);
@@ -176,10 +174,7 @@ async fn hardware_stack_stays_bounded() {
 
     let window: Vec<_> = hw.iter().filter(|s| s.tick >= 100).collect();
     assert!(!window.is_empty());
-    let max_theta = window
-        .iter()
-        .map(|s| s.theta.abs())
-        .fold(0.0_f64, f64::max);
+    let max_theta = window.iter().map(|s| s.theta.abs()).fold(0.0_f64, f64::max);
     assert!(max_theta < 0.3, "max theta {max_theta}");
 }
 

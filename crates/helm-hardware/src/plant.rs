@@ -4,11 +4,11 @@ use async_trait::async_trait;
 use tokio::sync::Mutex;
 
 use helm_core::{
-    Module, ModuleContext, ModuleError, ModuleTopics, Timestamp, module_topics, topics,
+    module_topics, topics, Module, ModuleContext, ModuleError, ModuleTopics, Timestamp,
 };
 
 use crate::config::HardwareConfig;
-use crate::session::{WireSession, cmd_from_force, roundtrip_set_force};
+use crate::session::{cmd_from_force, roundtrip_set_force, WireSession};
 use crate::transport::connect_fake_device;
 
 pub struct HardwarePlantModule {
@@ -58,12 +58,10 @@ impl Module for HardwarePlantModule {
             .io
             .as_ref()
             .ok_or_else(|| ModuleError::Failed("cart_pole_hardware", "missing PTY".into()))?;
-        let io = Arc::new(Mutex::new(
-            io_src
-                .try_clone()
-                .await
-                .map_err(|e| ModuleError::Failed("cart_pole_hardware", e.to_string()))?,
-        ));
+        let io =
+            Arc::new(Mutex::new(io_src.try_clone().await.map_err(|e| {
+                ModuleError::Failed("cart_pole_hardware", e.to_string())
+            })?));
 
         let mut tick_rx = ctx.bus.subscribe_watch(&topics::TICK)?;
         let force_rx = ctx.bus.subscribe_watch(&topics::FORCE_CMD_SAFE)?;

@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 
 use helm_core::{
-    CartPoleState, FaultConfig, FaultKind, ForceCommand, Module, ModuleContext, ModuleError,
-    ModuleTopics, module_topics, topics,
+    module_topics, topics, CartPoleState, FaultConfig, FaultKind, ForceCommand, Module,
+    ModuleContext, ModuleError, ModuleTopics,
 };
 
 const FORCE_LIMIT: f64 = 20.0;

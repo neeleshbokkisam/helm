@@ -1,13 +1,13 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use helm_core::{Module, ModuleBus, ModuleContext, Runtime, Timestamp, TopicBus, topics};
+use helm_core::{topics, Module, ModuleBus, ModuleContext, Runtime, Timestamp, TopicBus};
 use helm_dashboard::{
-    BROADCAST_CAPACITY, DashboardConfig, DashboardModule, TickSnapshot, push_snapshot,
-    run_bus_loop, try_start_server,
+    push_snapshot, run_bus_loop, try_start_server, DashboardConfig, DashboardModule, TickSnapshot,
+    BROADCAST_CAPACITY,
 };
-use tokio_util::sync::CancellationToken;
 use tokio_tungstenite::connect_async;
+use tokio_util::sync::CancellationToken;
 
 fn register_all(bus: &mut TopicBus) {
     bus.register(&topics::TICK).unwrap();

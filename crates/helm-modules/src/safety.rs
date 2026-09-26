@@ -1,9 +1,9 @@
 use async_trait::async_trait;
 
 use helm_core::{
-    ForceCommand, Module, ModuleContext, ModuleError, ModuleTopics, SafetyFault, SafetyStatus,
-    CMD_STALE_MS, SAFETY_FORWARD_CLAMP_N, SAFETY_TRIP_LIMIT_N, STATE_STALE_MS,
-    module_topics, stale_ticks, topics,
+    module_topics, stale_ticks, topics, ForceCommand, Module, ModuleContext, ModuleError,
+    ModuleTopics, SafetyFault, SafetyStatus, CMD_STALE_MS, SAFETY_FORWARD_CLAMP_N,
+    SAFETY_TRIP_LIMIT_N, STATE_STALE_MS,
 };
 
 pub struct SafetyConfig {
@@ -211,10 +211,7 @@ mod tests {
         let mut latched = None;
         let out = safe_output(20.1, &mut latched);
         assert_eq!(out.force_n, 0.0);
-        assert!(matches!(
-            latched,
-            Some(SafetyFault::ForceOutOfRange { .. })
-        ));
+        assert!(matches!(latched, Some(SafetyFault::ForceOutOfRange { .. })));
     }
 
     #[test]
@@ -236,7 +233,9 @@ mod tests {
             .unwrap();
 
         let run = tokio::spawn(async move {
-            runtime.run_for_ticks(2, std::time::Duration::from_millis(10)).await
+            runtime
+                .run_for_ticks(2, std::time::Duration::from_millis(10))
+                .await
         });
 
         handle
@@ -263,7 +262,9 @@ mod tests {
             .unwrap();
 
         let run = tokio::spawn(async move {
-            runtime.run_for_ticks(2, std::time::Duration::from_millis(10)).await
+            runtime
+                .run_for_ticks(2, std::time::Duration::from_millis(10))
+                .await
         });
 
         handle

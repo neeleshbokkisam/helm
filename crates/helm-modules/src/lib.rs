@@ -1,8 +1,8 @@
 mod logger;
 mod pid;
+mod policy;
 #[cfg(feature = "onnx")]
 mod policy_onnx;
-mod policy;
 mod safety;
 mod stabilizer;
 

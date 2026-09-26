@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use helm_core::{FaultConfig, Runtime, TopicBus, topics};
+use helm_core::{topics, FaultConfig, Runtime, TopicBus};
 use helm_modules::{SafetyConfig, SafetyModule, StabilizerModule};
 use helm_sim::CartPoleModule;
 
@@ -74,10 +74,7 @@ async fn cart_pole_stays_bounded_after_settling() {
         assert!(theta.abs() < 0.3, "theta {theta} out of bounds");
     }
 
-    let max = window
-        .iter()
-        .map(|(_, t)| t.abs())
-        .fold(0.0_f64, f64::max);
+    let max = window.iter().map(|(_, t)| t.abs()).fold(0.0_f64, f64::max);
     assert!(max < 0.25, "max theta {max}");
 }
 

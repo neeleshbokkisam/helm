@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io::Write;
 use std::time::Duration;
 
-use helm_core::{Runtime, TopicBus, topics};
+use helm_core::{topics, Runtime, TopicBus};
 use helm_hardware::{HardwareConfig, HardwarePlantModule};
 use helm_modules::{SafetyConfig, SafetyModule, StabilizerModule};
 use helm_sim::CartPoleModule;
@@ -27,7 +27,9 @@ async fn run_sim(ticks: u64, dt_ms: u64) -> Vec<Sample> {
     let (mut bus, handle) = TopicBus::new();
     register_all(&mut bus);
     let mut runtime = Runtime::new(handle.clone());
-    runtime.add_module(Box::new(StabilizerModule::new())).unwrap();
+    runtime
+        .add_module(Box::new(StabilizerModule::new()))
+        .unwrap();
     runtime
         .add_module(Box::new(SafetyModule::new(SafetyConfig::new(dt_ms))))
         .unwrap();
@@ -66,7 +68,9 @@ async fn run_hw(ticks: u64, dt_ms: u64) -> Vec<Sample> {
         .with_spawned_device()
         .unwrap();
     let mut runtime = Runtime::new(handle.clone());
-    runtime.add_module(Box::new(StabilizerModule::new())).unwrap();
+    runtime
+        .add_module(Box::new(StabilizerModule::new()))
+        .unwrap();
     runtime
         .add_module(Box::new(SafetyModule::new(SafetyConfig::new(dt_ms))))
         .unwrap();
@@ -154,7 +158,10 @@ async fn dump_sim_hw_theta_delta_profile() {
     eprintln!("max |delta| all ticks: {max_abs_delta:.9}");
     eprintln!("max |delta_step| all ticks: {max_abs_step:.9}");
     eprintln!("step jumps |delta_step|>0.01: {step_jumps}");
-    eprintln!("late window tick>=400: max={late_max:.9} mean={late_mean:.9} n={}", late.len());
+    eprintln!(
+        "late window tick>=400: max={late_max:.9} mean={late_mean:.9} n={}",
+        late.len()
+    );
 
     // Always pass — diagnostic only
     assert!(max_abs_delta.is_finite());

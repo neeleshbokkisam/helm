@@ -2,7 +2,7 @@ use std::env;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use helm_core::{FaultConfig, FaultKind, Runtime, TopicBus, topics};
+use helm_core::{topics, FaultConfig, FaultKind, Runtime, TopicBus};
 use helm_modules::{LoggerModule, SafetyConfig, SafetyModule, StabilizerModule};
 use helm_sim::CartPoleModule;
 
@@ -63,7 +63,9 @@ fn usage() {
     #[cfg(feature = "hardware")]
     {
         eprintln!("       [--backend sim|hardware [--spawn-fake-device | --pty-path PATH]]");
-        eprintln!("       [--device-fault drop-bytes|corrupt-crc|silent|link-down --device-fault-at N]");
+        eprintln!(
+            "       [--device-fault drop-bytes|corrupt-crc|silent|link-down --device-fault-at N]"
+        );
     }
     #[cfg(feature = "dashboard")]
     eprintln!("       [--dashboard [--dashboard-port N]]");
@@ -139,7 +141,9 @@ fn parse_args() -> Result<RunOptions, String> {
             "--spawn-fake-device" => spawn_fake_device = true,
             #[cfg(feature = "hardware")]
             "--pty-path" => {
-                pty_path = Some(PathBuf::from(args.next().ok_or("missing value for --pty-path")?))
+                pty_path = Some(PathBuf::from(
+                    args.next().ok_or("missing value for --pty-path")?,
+                ))
             }
             #[cfg(feature = "hardware")]
             "--device-fault" => {
@@ -166,14 +170,22 @@ fn parse_args() -> Result<RunOptions, String> {
             }
             #[cfg(feature = "onnx")]
             "--controller" => {
-                controller = match args.next().ok_or("missing value for --controller")?.as_str() {
+                controller = match args
+                    .next()
+                    .ok_or("missing value for --controller")?
+                    .as_str()
+                {
                     "stabilizer" => Controller::Stabilizer,
                     "policy" => Controller::Policy,
                     other => return Err(format!("unknown controller: {other}")),
                 };
             }
             #[cfg(feature = "onnx")]
-            "--model" => model = Some(PathBuf::from(args.next().ok_or("missing value for --model")?)),
+            "--model" => {
+                model = Some(PathBuf::from(
+                    args.next().ok_or("missing value for --model")?,
+                ))
+            }
             "--help" | "-h" => {
                 usage();
                 std::process::exit(0);
@@ -270,7 +282,9 @@ async fn run(opts: RunOptions) -> Result<(), Box<dyn std::error::Error>> {
                     .await?;
                 HardwarePlantModule::new(hw_config).with_master(master)
             } else {
-                return Err("--spawn-fake-device or --pty-path required for hardware backend".into());
+                return Err(
+                    "--spawn-fake-device or --pty-path required for hardware backend".into(),
+                );
             };
             runtime.add_module(Box::new(plant))?;
         }

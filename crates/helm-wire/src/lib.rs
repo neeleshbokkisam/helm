@@ -2,8 +2,7 @@ pub mod crc;
 pub mod frame;
 pub mod messages;
 
-pub use frame::{FrameParser, WireError, encode_frame};
+pub use frame::{encode_frame, FrameParser, WireError};
 pub use messages::{
-    CMD_SET_FORCE, RSP_STATE, CmdSetForce, ParsedPayload, RspState, decode_payload,
-    encode_payload,
+    decode_payload, encode_payload, CmdSetForce, ParsedPayload, RspState, CMD_SET_FORCE, RSP_STATE,
 };

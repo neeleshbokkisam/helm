@@ -51,7 +51,8 @@ impl CartPolePhysics {
 
         self.state.x += (dt / 6.0) * (k1.dx + 2.0 * k2.dx + 2.0 * k3.dx + k4.dx);
         self.state.x_dot += (dt / 6.0) * (k1.dxd + 2.0 * k2.dxd + 2.0 * k3.dxd + k4.dxd);
-        self.state.theta += (dt / 6.0) * (k1.dtheta + 2.0 * k2.dtheta + 2.0 * k3.dtheta + k4.dtheta);
+        self.state.theta +=
+            (dt / 6.0) * (k1.dtheta + 2.0 * k2.dtheta + 2.0 * k3.dtheta + k4.dtheta);
         self.state.theta_dot +=
             (dt / 6.0) * (k1.dtheta_d + 2.0 * k2.dtheta_d + 2.0 * k3.dtheta_d + k4.dtheta_d);
 
@@ -100,8 +101,8 @@ impl CartPolePhysics {
         let cos_t = state.theta.cos();
 
         let temp = (force + m * l * state.theta_dot * state.theta_dot * sin_t) / total_mass;
-        let theta_acc = (g * sin_t - cos_t * temp)
-            / (l * (4.0 / 3.0 - m * cos_t * cos_t / total_mass));
+        let theta_acc =
+            (g * sin_t - cos_t * temp) / (l * (4.0 / 3.0 - m * cos_t * cos_t / total_mass));
         let x_acc = temp - m * l * theta_acc * cos_t / total_mass;
 
         StateDeriv {

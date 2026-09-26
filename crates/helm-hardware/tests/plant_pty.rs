@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use helm_core::{Runtime, TopicBus, topics};
+use helm_core::{topics, Runtime, TopicBus};
 use helm_hardware::{HardwareConfig, HardwarePlantModule};
 
 pub fn register_all(bus: &mut TopicBus) {
@@ -25,11 +25,8 @@ async fn hardware_plant_publishes_over_pty() {
 
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    let run = tokio::spawn(async move {
-        runtime
-            .run_for_ticks(20, Duration::from_millis(10))
-            .await
-    });
+    let run =
+        tokio::spawn(async move { runtime.run_for_ticks(20, Duration::from_millis(10)).await });
 
     let state_rx = handle.subscribe_watch(&topics::CART_POLE_STATE).unwrap();
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);

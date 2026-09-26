@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use async_trait::async_trait;
 
 use helm_core::{
-    CartPoleState, ForceCommand, Module, ModuleContext, ModuleError, ModuleTopics, module_topics,
-    topics,
+    module_topics, topics, CartPoleState, ForceCommand, Module, ModuleContext, ModuleError,
+    ModuleTopics,
 };
 
 #[cfg(feature = "onnx")]
