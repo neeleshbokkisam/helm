@@ -2,7 +2,7 @@ use std::env;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use helm_core::{topics, FaultConfig, FaultKind, Runtime, TopicBus};
+use helm_core::{topics, CartPoleState, FaultConfig, FaultKind, Runtime, TopicBus};
 use helm_modules::{LoggerModule, SafetyConfig, SafetyModule, StabilizerModule};
 use helm_sim::CartPoleModule;
 
@@ -10,7 +10,10 @@ use helm_sim::CartPoleModule;
 use helm_hardware::{DeviceFaultConfig, HardwareConfig, HardwarePlantModule};
 
 #[cfg(feature = "dashboard")]
-use helm_dashboard::{DashboardConfig, DashboardModule};
+use helm_dashboard::{
+    default_static_dir, validate_dashboard_preflight, DashboardConfig, DashboardModule,
+    ReplayModule, SessionInfo,
+};
 
 #[cfg(feature = "onnx")]
 use helm_modules::PolicyModule;
@@ -50,6 +53,12 @@ struct RunOptions {
     dashboard: bool,
     #[cfg(feature = "dashboard")]
     dashboard_port: u16,
+    #[cfg(feature = "dashboard")]
+    demo: bool,
+    #[cfg(feature = "dashboard")]
+    demo_seconds: Option<u64>,
+    #[cfg(feature = "dashboard")]
+    replay: Option<PathBuf>,
     #[cfg(feature = "onnx")]
     controller: Controller,
     #[cfg(feature = "onnx")]
@@ -68,7 +77,11 @@ fn usage() {
         );
     }
     #[cfg(feature = "dashboard")]
-    eprintln!("       [--dashboard [--dashboard-port N]]");
+    {
+        eprintln!("       [--dashboard [--dashboard-port N]]");
+        eprintln!("       [--demo [--demo-seconds N]]  (live sim + dashboard until Ctrl-C)");
+        eprintln!("       [--replay PATH]  (loop recorded csv + dashboard)");
+    }
     #[cfg(feature = "onnx")]
     eprintln!("       [--controller stabilizer|policy [--model PATH]]");
 }
@@ -94,6 +107,12 @@ fn parse_args() -> Result<RunOptions, String> {
     let mut dashboard = false;
     #[cfg(feature = "dashboard")]
     let mut dashboard_port = 8080u16;
+    #[cfg(feature = "dashboard")]
+    let mut demo = false;
+    #[cfg(feature = "dashboard")]
+    let mut demo_seconds = None;
+    #[cfg(feature = "dashboard")]
+    let mut replay = None;
     #[cfg(feature = "onnx")]
     let mut controller = Controller::Stabilizer;
     #[cfg(feature = "onnx")]
@@ -161,12 +180,33 @@ fn parse_args() -> Result<RunOptions, String> {
             #[cfg(feature = "dashboard")]
             "--dashboard" => dashboard = true,
             #[cfg(feature = "dashboard")]
+            "--demo" => {
+                demo = true;
+                dashboard = true;
+            }
+            #[cfg(feature = "dashboard")]
+            "--demo-seconds" => {
+                demo_seconds = Some(
+                    args.next()
+                        .ok_or("missing value for --demo-seconds")?
+                        .parse()
+                        .map_err(|_| "invalid --demo-seconds")?,
+                );
+            }
+            #[cfg(feature = "dashboard")]
             "--dashboard-port" => {
                 dashboard_port = args
                     .next()
                     .ok_or("missing value for --dashboard-port")?
                     .parse()
                     .map_err(|_| "invalid --dashboard-port")?;
+            }
+            #[cfg(feature = "dashboard")]
+            "--replay" => {
+                replay = Some(PathBuf::from(
+                    args.next().ok_or("missing value for --replay")?,
+                ));
+                dashboard = true;
             }
             #[cfg(feature = "onnx")]
             "--controller" => {
@@ -227,6 +267,11 @@ fn parse_args() -> Result<RunOptions, String> {
         }
     }
 
+    #[cfg(feature = "dashboard")]
+    if demo && replay.is_some() {
+        return Err("--demo and --replay are mutually exclusive".into());
+    }
+
     Ok(RunOptions {
         seconds,
         dt_ms,
@@ -245,6 +290,12 @@ fn parse_args() -> Result<RunOptions, String> {
         dashboard,
         #[cfg(feature = "dashboard")]
         dashboard_port,
+        #[cfg(feature = "dashboard")]
+        demo,
+        #[cfg(feature = "dashboard")]
+        demo_seconds,
+        #[cfg(feature = "dashboard")]
+        replay,
         #[cfg(feature = "onnx")]
         controller,
         #[cfg(feature = "onnx")]
@@ -252,13 +303,47 @@ fn parse_args() -> Result<RunOptions, String> {
     })
 }
 
+#[cfg(feature = "dashboard")]
+fn validate_dashboard(opts: &RunOptions) -> Result<(), String> {
+    if !opts.dashboard && opts.replay.is_none() {
+        return Ok(());
+    }
+    validate_dashboard_preflight(
+        opts.dashboard_port,
+        &default_static_dir(),
+        opts.replay.as_deref(),
+    )
+}
+
 async fn run(opts: RunOptions) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(feature = "dashboard")]
+    validate_dashboard(&opts)?;
     let (mut bus, handle) = TopicBus::new();
     bus.register(&topics::TICK)?;
     bus.register(&topics::CART_POLE_STATE)?;
     bus.register(&topics::FORCE_CMD)?;
     bus.register(&topics::FORCE_CMD_SAFE)?;
     bus.register(&topics::SAFETY_STATUS)?;
+
+    let dt = Duration::from_millis(opts.dt_ms);
+
+    #[cfg(feature = "dashboard")]
+    if let Some(path) = opts.replay.clone() {
+        let initial_theta = ReplayModule::initial_theta(&path)?;
+        let session = SessionInfo::replay(dt.as_secs_f64(), initial_theta);
+        let mut runtime = Runtime::new(handle);
+        runtime.add_module(Box::new(ReplayModule::new(path, opts.dt_ms)))?;
+        runtime.add_module(Box::new(DashboardModule::new(
+            DashboardConfig::new(opts.dashboard_port).with_session(session),
+        )))?;
+        let token = runtime.cancel_token();
+        tokio::spawn(async move {
+            tokio::signal::ctrl_c().await.ok();
+            token.cancel();
+        });
+        runtime.run_until_cancelled(dt).await?;
+        return Ok(());
+    }
 
     let mut safety_config = SafetyConfig::new(opts.dt_ms);
     safety_config.halt_on_fault = opts.halt_on_fault;
@@ -267,7 +352,19 @@ async fn run(opts: RunOptions) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "hardware")]
     match opts.backend {
         Backend::Sim => {
-            runtime.add_module(Box::new(CartPoleModule::with_fault(opts.fault)))?;
+            #[cfg(feature = "dashboard")]
+            let plant = if opts.demo {
+                let demo_initial = CartPoleState {
+                    theta: 0.3,
+                    ..CartPoleState::INITIAL
+                };
+                CartPoleModule::with_initial(demo_initial, opts.fault).with_demo_loop(1500)
+            } else {
+                CartPoleModule::with_fault(opts.fault)
+            };
+            #[cfg(not(feature = "dashboard"))]
+            let plant = CartPoleModule::with_fault(opts.fault);
+            runtime.add_module(Box::new(plant))?;
         }
         Backend::Hardware => {
             let mut hw_config = HardwareConfig::new(opts.dt_ms);
@@ -290,7 +387,24 @@ async fn run(opts: RunOptions) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     #[cfg(not(feature = "hardware"))]
-    runtime.add_module(Box::new(CartPoleModule::with_fault(opts.fault)))?;
+    {
+        let plant = {
+            #[cfg(feature = "dashboard")]
+            let p = if opts.demo {
+                let demo_initial = CartPoleState {
+                    theta: 0.3,
+                    ..CartPoleState::INITIAL
+                };
+                CartPoleModule::with_initial(demo_initial, opts.fault).with_demo_loop(1500)
+            } else {
+                CartPoleModule::with_fault(opts.fault)
+            };
+            #[cfg(not(feature = "dashboard"))]
+            let p = CartPoleModule::with_fault(opts.fault);
+            p
+        };
+        runtime.add_module(Box::new(plant))?;
+    }
 
     #[cfg(feature = "onnx")]
     match opts.controller {
@@ -311,15 +425,43 @@ async fn run(opts: RunOptions) -> Result<(), Box<dyn std::error::Error>> {
 
     #[cfg(feature = "dashboard")]
     if opts.dashboard {
-        runtime.add_module(Box::new(DashboardModule::new(DashboardConfig::new(
-            opts.dashboard_port,
-        ))))?;
+        let dt_secs = dt.as_secs_f64();
+        #[cfg(feature = "hardware")]
+        let session = if opts.backend == Backend::Hardware {
+            SessionInfo::live_hardware(dt_secs)
+        } else {
+            SessionInfo::live_sim(dt_secs)
+        };
+        #[cfg(not(feature = "hardware"))]
+        let session = if opts.demo {
+            SessionInfo::live_sim_demo(dt_secs, 0.3)
+        } else {
+            SessionInfo::live_sim(dt_secs)
+        };
+
+        runtime.add_module(Box::new(DashboardModule::new(
+            DashboardConfig::new(opts.dashboard_port).with_session(session),
+        )))?;
+    }
+
+    #[cfg(feature = "dashboard")]
+    if opts.demo {
+        let token = runtime.cancel_token();
+        tokio::spawn(async move {
+            tokio::signal::ctrl_c().await.ok();
+            token.cancel();
+        });
+        if let Some(secs) = opts.demo_seconds {
+            let ticks = secs * 1000 / opts.dt_ms.max(1);
+            runtime.run_for_ticks(ticks, dt).await?;
+        } else {
+            runtime.run_until_cancelled(dt).await?;
+        }
+        return Ok(());
     }
 
     let ticks = opts.seconds * 1000 / opts.dt_ms.max(1);
-    runtime
-        .run_for_ticks(ticks, Duration::from_millis(opts.dt_ms))
-        .await?;
+    runtime.run_for_ticks(ticks, dt).await?;
 
     Ok(())
 }

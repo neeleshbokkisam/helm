@@ -13,7 +13,7 @@ helm-sim = { path = "../helm-sim" }
 helm-modules = { path = "../helm-modules" }
 helm-dashboard = { path = "../helm-dashboard", optional = true }
 helm-hardware = { path = "../helm-hardware", optional = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["signal"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
@@ -36,6 +36,11 @@ required-features = ["hardware"]
 [[test]]
 name = "hardware_steady_state_stale"
 path = "tests/hardware_steady_state_stale.rs"
+required-features = ["hardware"]
+
+[[test]]
+name = "hardware_sim_delta_analysis"
+path = "tests/hardware_sim_delta_analysis.rs"
 required-features = ["hardware"]
 
 [[test]]

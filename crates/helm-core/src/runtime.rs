@@ -105,6 +105,47 @@ impl Runtime {
 
         Ok(())
     }
+
+    pub fn cancel_token(&self) -> CancellationToken {
+        self.shutdown.clone()
+    }
+
+    pub async fn run_until_cancelled(&mut self, dt: Duration) -> Result<(), HelmError> {
+        self.start().await?;
+
+        let bus = self.bus.clone();
+        let shutdown = self.shutdown.clone();
+        let tick_handle = tokio::spawn(async move {
+            let mut tick = 0u64;
+            loop {
+                if shutdown.is_cancelled() {
+                    break;
+                }
+                tick += 1;
+                let ts = Timestamp {
+                    tick,
+                    dt_secs: dt.as_secs_f64(),
+                };
+                let _ = bus.publish_watch(&topics::TICK, Tick { timestamp: ts });
+                tokio::time::sleep(dt).await;
+            }
+        });
+        self.tick_handle = Some(tick_handle);
+
+        for handle in self.handles.drain(..) {
+            match handle.await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => return Err(e.into()),
+                Err(e) => return Err(HelmError::Runtime(e.to_string())),
+            }
+        }
+
+        if let Some(handle) = self.tick_handle.take() {
+            let _ = handle.await;
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]

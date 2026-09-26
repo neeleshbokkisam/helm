@@ -10,8 +10,10 @@ use helm_core::{
 use crate::cart_pole::{CartPoleParams, CartPolePhysics};
 
 pub struct CartPoleModule {
+    initial_state: CartPoleState,
     physics: Mutex<CartPolePhysics>,
     fault: FaultConfig,
+    demo_loop_ticks: Option<u64>,
 }
 
 impl CartPoleModule {
@@ -20,13 +22,21 @@ impl CartPoleModule {
     }
 
     pub fn with_fault(fault: FaultConfig) -> Self {
+        Self::with_initial(CartPoleState::INITIAL, fault)
+    }
+
+    pub fn with_initial(initial: CartPoleState, fault: FaultConfig) -> Self {
         Self {
-            physics: Mutex::new(CartPolePhysics::new(
-                CartPoleParams::default(),
-                CartPoleState::INITIAL,
-            )),
+            initial_state: initial,
+            physics: Mutex::new(CartPolePhysics::new(CartPoleParams::default(), initial)),
             fault,
+            demo_loop_ticks: None,
         }
+    }
+
+    pub fn with_demo_loop(mut self, period_ticks: u64) -> Self {
+        self.demo_loop_ticks = Some(period_ticks);
+        self
     }
 }
 
@@ -69,6 +79,14 @@ impl Module for CartPoleModule {
                     let force = *force_rx.borrow();
 
                     let mut physics = self.physics.lock().expect("physics lock");
+                    if self.demo_loop_ticks.is_some_and(|period| {
+                        period > 0 && tick.timestamp.tick > 0 && tick.timestamp.tick % period == 0
+                    }) {
+                        *physics = CartPolePhysics::new(
+                            CartPoleParams::default(),
+                            self.initial_state,
+                        );
+                    }
                     let state = physics.step(force.force_n, tick.timestamp.dt_secs);
 
                     if stale_after.is_some_and(|after| tick.timestamp.tick > after) {
