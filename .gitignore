@@ -1,4 +1,9 @@
 /target
+target/
 **/*.rs.bk
 .DS_Store
 .cursor/
+__pycache__/
+checkpoints/
+*.pt
+*.mp4
