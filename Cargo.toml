@@ -8,6 +8,7 @@ members = [
     "crates/helm-dashboard",
     "crates/helm-wire",
     "crates/helm-hardware",
+    "tools/compare-controllers",
 ]
 
 [workspace.dependencies]

@@ -32,7 +32,7 @@ impl Default for StabilizerModule {
     }
 }
 
-fn compute_force(state: CartPoleState) -> f64 {
+pub fn pd_force(state: CartPoleState) -> f64 {
     let raw = K_THETA * state.theta
         + K_THETA_DOT * state.theta_dot
         + K_X * state.x
@@ -70,7 +70,7 @@ impl Module for StabilizerModule {
         ctx.bus.publish_watch(
             &topics::FORCE_CMD,
             ForceCommand {
-                force_n: compute_force(initial),
+                force_n: pd_force(initial),
             },
         )?;
 
@@ -102,7 +102,7 @@ impl Module for StabilizerModule {
                     ctx.bus.publish_watch(
                         &topics::FORCE_CMD,
                         ForceCommand {
-                            force_n: compute_force(state),
+                            force_n: pd_force(state),
                         },
                     )?;
                 }
@@ -129,7 +129,7 @@ impl Module for StabilizerModule {
                     ctx.bus.publish_watch(
                         &topics::FORCE_CMD,
                         ForceCommand {
-                            force_n: compute_force(state),
+                            force_n: pd_force(state),
                         },
                     )?;
                 }
@@ -150,6 +150,6 @@ mod tests {
             theta: 0.1,
             ..CartPoleState::INITIAL
         };
-        assert!(compute_force(state) > 0.0);
+        assert!(pd_force(state) > 0.0);
     }
 }

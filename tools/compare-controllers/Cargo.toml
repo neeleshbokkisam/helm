@@ -1,0 +1,9 @@
+[package]
+name = "compare-controllers"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+helm-core = { path = "../../crates/helm-core" }
+helm-sim = { path = "../../crates/helm-sim" }
+helm-modules = { path = "../../crates/helm-modules", features = ["onnx"] }
