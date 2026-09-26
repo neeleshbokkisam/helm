@@ -37,7 +37,7 @@ cargo run -p helm-cli --features dashboard -- --demo --fault force-overshoot --f
 
 ## 100 Hz
 
-The tick loop is `tokio::time::interval` at 10 ms with `MissedTickBehavior::Skip`. The panel rate is 1 / the latest fire-to-fire gap. Idle at 97.4 Hz is a gap of about 10.3 ms: the 10 ms interval plus a few hundred microseconds of timer slack on every tick. That slack is not a skipped tick. A skipped tick is a gap of at least 15 ms, so the interval jumped one or more slots. Pipeline misses are separate: `force_cmd_safe` for tick k was not published before tick k+1 fired. An idle run can show about 97 Hz with both counters at zero. `--stress` with no number starts one burner thread per core; `--stress N` sets the count.
+The tick loop is `tokio::time::interval` at 10 ms with `MissedTickBehavior::Skip`. The panel rate is ticks per elapsed second from the first fire. Jitter is lateness versus that tick's deadline. A skipped tick is a gap of at least 15 ms, so the interval jumped one or more slots. Pipeline misses are separate: `force_cmd_safe` for tick k was not published before tick k+1 fired. `--stress` with no number starts one burner thread per core; `--stress N` sets the count.
 
 This is a desktop interval, not an RTOS deadline.
 

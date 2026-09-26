@@ -59,16 +59,16 @@ export function App() {
         <section className="panel">
           <h2>Loop timing</h2>
           <p className="panel-sub">
-            Rate is 1 / measured gap. About 10.3 ms of timer slack reads as ~97 Hz, not a skip.
+            Rate is ticks per elapsed second. Jitter is lateness versus the deadline.
             A skip is a gap of at least 15 ms. A pipeline miss means safe force was late.
           </p>
           <dl className="metrics-row">
             <div>
-              <dt>Rate</dt>
+              <dt>Ticks / s</dt>
               <dd>{loop.hz > 0 ? `${loop.hz.toFixed(1)} Hz` : "—"}</dd>
             </div>
             <div>
-              <dt>Jitter p50 / p99 / max</dt>
+              <dt>Lateness p50 / p99 / max</dt>
               <dd>
                 {(loop.jitter_p50_us / 1000).toFixed(2)} / {(loop.jitter_p99_us / 1000).toFixed(2)} /{" "}
                 {(loop.jitter_max_us / 1000).toFixed(2)} ms

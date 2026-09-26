@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use serde::Serialize;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
@@ -145,6 +147,16 @@ pub fn hz_from_period_us(period_us: u64) -> f64 {
     }
 }
 
+/// Fires after the first, divided by time since that first fire.
+pub fn hz_from_elapsed(ticks: u64, elapsed: Duration) -> f64 {
+    let secs = elapsed.as_secs_f64();
+    if ticks == 0 || secs <= 0.0 {
+        0.0
+    } else {
+        ticks as f64 / secs
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TopicKind {
     Watch,
@@ -227,5 +239,15 @@ mod tests {
     fn cart_pole_state_serializes() {
         let json = serde_json::to_string(&CartPoleState::INITIAL).unwrap();
         assert!(json.contains("\"theta\":0.05"));
+    }
+
+    #[test]
+    fn gaps_average_to_100hz_while_last_gap_stays_97() {
+        let gaps_us = [10_300u64, 9_700];
+        let elapsed = Duration::from_micros(gaps_us.iter().sum());
+        let hz = hz_from_elapsed(gaps_us.len() as u64, elapsed);
+        assert!((hz - 100.0).abs() < 1e-9);
+        let last = hz_from_period_us(10_267);
+        assert!((last - 97.4).abs() < 0.05);
     }
 }

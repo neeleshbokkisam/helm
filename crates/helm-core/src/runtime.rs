@@ -7,7 +7,7 @@ use tokio_util::sync::CancellationToken;
 use crate::bus::BusHandle;
 use crate::error::{BusError, HelmError, ModuleError};
 use crate::message::{
-    hz_from_period_us, percentile, pipeline_miss, skipped_ticks, topics, LoopStats, SafetyStatus,
+    hz_from_elapsed, percentile, pipeline_miss, skipped_ticks, topics, LoopStats, SafetyStatus,
     Tick, Timestamp, LOOP_STATS_WINDOW,
 };
 use crate::module::{Module, ModuleBus, ModuleContext};
@@ -157,15 +157,14 @@ fn spawn_tick_loop(
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(dt);
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        let mut scheduled = tokio::time::Instant::now();
         let mut safety_rx = bus.subscribe_watch(&topics::SAFETY_STATUS).ok();
         let mut tick = 0u64;
         let mut miss_count = 0u64;
         let mut skip_count = 0u64;
         let mut jitter_window: std::collections::VecDeque<i64> =
             std::collections::VecDeque::with_capacity(LOOP_STATS_WINDOW);
+        let mut first_fire: Option<tokio::time::Instant> = None;
         let mut last_fire: Option<tokio::time::Instant> = None;
-        let mut skip_wait = false;
 
         loop {
             if shutdown.is_cancelled() {
@@ -174,21 +173,21 @@ fn spawn_tick_loop(
             if max_ticks.is_some_and(|max| tick >= max) {
                 break;
             }
-            if !skip_wait {
-                interval.tick().await;
-            }
-            skip_wait = false;
+            let deadline = interval.tick().await;
             if shutdown.is_cancelled() {
                 break;
             }
 
             let fired = tokio::time::Instant::now();
-            let jitter_us = signed_micros(fired, scheduled);
+            let jitter_us = signed_micros(fired, deadline);
             let period_us = match last_fire {
                 Some(prev) => fired.saturating_duration_since(prev).as_micros() as u64,
                 None => 0,
             };
             last_fire = Some(fired);
+            if first_fire.is_none() {
+                first_fire = Some(fired);
+            }
 
             let safe_tick = safety_rx.as_ref().map(|rx| rx.borrow().tick).unwrap_or(0);
             let miss = pipeline_miss(tick, safe_tick);
@@ -198,6 +197,10 @@ fn spawn_tick_loop(
             skip_count = skip_count.saturating_add(skipped_ticks(period_us));
 
             tick += 1;
+            let gaps = tick.saturating_sub(1);
+            let hz = first_fire
+                .map(|start| hz_from_elapsed(gaps, fired.saturating_duration_since(start)))
+                .unwrap_or(0.0);
             let _ = bus.publish_watch(
                 &topics::TICK,
                 Tick {
@@ -208,20 +211,18 @@ fn spawn_tick_loop(
                 },
             );
             let published_at = tokio::time::Instant::now();
-            scheduled = next_deadline(scheduled, fired, dt);
 
             let is_last = max_ticks == Some(tick);
             let mut compute_us = 0u64;
             if let Some(rx) = safety_rx.as_mut() {
+                let next_deadline = deadline + dt;
                 tokio::select! {
                     biased;
                     _ = shutdown.cancelled() => break,
                     _ = wait_for_safety_tick(rx, tick) => {
                         compute_us = published_at.elapsed().as_micros() as u64;
                     }
-                    _ = interval.tick(), if !is_last => {
-                        skip_wait = true;
-                    }
+                    _ = tokio::time::sleep_until(next_deadline), if !is_last => {}
                     _ = tokio::time::sleep(dt), if is_last => {}
                 }
             }
@@ -244,7 +245,7 @@ fn spawn_tick_loop(
                     miss,
                     miss_count,
                     skip_count,
-                    hz: hz_from_period_us(period_us),
+                    hz,
                     stress_threads,
                     core_count,
                 },
@@ -253,6 +254,17 @@ fn spawn_tick_loop(
             if is_last || shutdown.is_cancelled() {
                 break;
             }
+        }
+
+        if let Some(start) = first_fire {
+            let elapsed = start.elapsed();
+            let gaps = tick.saturating_sub(1);
+            let hz = hz_from_elapsed(gaps, elapsed);
+            eprintln!(
+                "loop ticks={tick} elapsed={:.3}s hz={:.2}",
+                elapsed.as_secs_f64(),
+                hz
+            );
         }
 
         if cancel_when_done {
@@ -269,6 +281,7 @@ fn signed_micros(fired: tokio::time::Instant, scheduled: tokio::time::Instant) -
     }
 }
 
+#[cfg(test)]
 fn next_deadline(
     scheduled: tokio::time::Instant,
     fired: tokio::time::Instant,
