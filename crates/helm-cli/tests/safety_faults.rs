@@ -76,7 +76,7 @@ async fn record(bus: BusHandle, max_tick: u64) -> Vec<Sample> {
 }
 
 #[tokio::test(start_paused = true)]
-async fn force_overshoot_latched_and_never_forwarded() {
+async fn rejects_out_of_range_force() {
     let fault = FaultConfig {
         kind: Some(FaultKind::ForceOvershoot {
             at_tick: 50,
@@ -99,7 +99,7 @@ async fn force_overshoot_latched_and_never_forwarded() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn stale_state_latches_and_zeros_force() {
+async fn drops_stale_state() {
     let fault = FaultConfig {
         kind: Some(FaultKind::StaleState { after_tick: 80 }),
     };
@@ -120,7 +120,7 @@ async fn stale_state_latches_and_zeros_force() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn dropped_command_latches_and_zeros_force() {
+async fn zeros_force_on_stale_command() {
     let fault = FaultConfig {
         kind: Some(FaultKind::DropCommand { after_tick: 80 }),
     };
