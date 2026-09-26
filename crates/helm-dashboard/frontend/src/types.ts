@@ -24,6 +24,33 @@ export interface TickSnapshot {
   safety: SafetyStatus;
 }
 
+export interface HelloMessage {
+  type: "hello";
+  mode: string;
+  backend: string;
+  dt_secs: number;
+  initial_theta_rad: number;
+  loops: boolean;
+}
+
+export interface HistoryMessage {
+  type: "history";
+  snapshots: TickSnapshot[];
+}
+
+export interface EndedMessage {
+  type: "ended";
+  final_tick: number;
+  reason: string;
+}
+
+export type DemoPhase =
+  | "connecting"
+  | "starting"
+  | "stabilizing"
+  | "balanced"
+  | "ended";
+
 export type ConnectionStatus = "connected" | "reconnecting" | "disconnected";
 
 export function faultLabel(fault: SafetyFault | null): string {
@@ -32,4 +59,46 @@ export function faultLabel(fault: SafetyFault | null): string {
   if ("StateStale" in fault) return "state stale";
   if ("CommandStale" in fault) return "command stale";
   return "unknown";
+}
+
+export function radToDeg(rad: number): number {
+  return (rad * 180) / Math.PI;
+}
+
+export function derivePhase(
+  snapshot: TickSnapshot | null,
+  connection: ConnectionStatus,
+  runEnded: boolean,
+): DemoPhase {
+  if (runEnded) return "ended";
+  if (connection !== "connected") return "connecting";
+  if (!snapshot) return "connecting";
+
+  const theta = Math.abs(snapshot.state.theta);
+  const force = Math.abs(snapshot.force_safe_n);
+
+  if (theta > 0.05) return "starting";
+  if (theta > 0.005 || force > 0.1) return "stabilizing";
+  return "balanced";
+}
+
+export function phaseMessage(
+  phase: DemoPhase,
+  snapshot: TickSnapshot | null,
+  hello: HelloMessage | null,
+): string {
+  switch (phase) {
+    case "connecting":
+      return "Connecting to control loop…";
+    case "starting": {
+      const deg = radToDeg(snapshot?.state.theta ?? hello?.initial_theta_rad ?? 0.3);
+      return `Pole tilted ~${Math.abs(deg).toFixed(0)}° — watch the controller catch it.`;
+    }
+    case "stabilizing":
+      return "Stabilizing — controller applying force to balance the pole.";
+    case "balanced":
+      return "Balanced — motion is tiny at equilibrium. Demo mode resets every ~15 s so you can replay tilt → settle.";
+    case "ended":
+      return "Run finished. Restart with: cargo run -p helm-cli --features dashboard -- --demo";
+  }
 }

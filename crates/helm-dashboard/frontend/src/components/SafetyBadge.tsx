@@ -13,8 +13,10 @@ export function SafetyBadge({ safety }: Props) {
     <div className={`safety-badge ${latched ? "fault" : "ok"}`}>
       <span className="dot" />
       <div>
-        <strong>{latched ? "latched fault" : "armed / ok"}</strong>
-        <div className="sub">{latched ? label : "no active fault"}</div>
+        <strong>{latched ? "Safety fault latched" : "Safety OK — force allowed through"}</strong>
+        <div className="sub">
+          {latched ? label : "Zeros force if a fault latches"}
+        </div>
       </div>
     </div>
   );
