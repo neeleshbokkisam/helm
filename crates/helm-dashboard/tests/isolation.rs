@@ -3,8 +3,8 @@ use std::time::Duration;
 
 use helm_core::{topics, Module, ModuleBus, ModuleContext, Runtime, Timestamp, TopicBus};
 use helm_dashboard::{
-    push_snapshot, run_bus_loop, try_start_server, DashboardConfig, DashboardModule, TickSnapshot,
-    BROADCAST_CAPACITY,
+    push_snapshot, run_bus_loop, try_start_server, DashboardConfig, DashboardModule,
+    DashboardShared, ReplayModule, SessionInfo, TickSnapshot, BROADCAST_CAPACITY,
 };
 use tokio_tungstenite::connect_async;
 use tokio_util::sync::CancellationToken;
@@ -12,6 +12,7 @@ use tokio_util::sync::CancellationToken;
 fn register_all(bus: &mut TopicBus) {
     bus.register(&topics::TICK).unwrap();
     bus.register(&topics::CART_POLE_STATE).unwrap();
+    bus.register(&topics::FORCE_CMD).unwrap();
     bus.register(&topics::FORCE_CMD_SAFE).unwrap();
     bus.register(&topics::SAFETY_STATUS).unwrap();
 }
@@ -30,6 +31,7 @@ async fn lagging_broadcast_does_not_block_bus_loop_at_many_ticks() {
 
     let (tx, _active) = tokio::sync::broadcast::channel(BROADCAST_CAPACITY);
     let _lagging = tx.subscribe();
+    let shared = DashboardShared::new(SessionInfo::live_sim(0.01));
 
     let mut runtime = Runtime::new(handle.clone());
     let shutdown = CancellationToken::new();
@@ -39,7 +41,7 @@ async fn lagging_broadcast_does_not_block_bus_loop_at_many_ticks() {
         shutdown: shutdown.clone(),
     };
 
-    let bus_loop = tokio::spawn(async move { run_bus_loop(ctx, Some(tx)).await });
+    let bus_loop = tokio::spawn(async move { run_bus_loop(ctx, Some(tx), Some(shared)).await });
 
     let ticks = tokio::spawn(async move { runtime.run_for_ticks(TICKS, DT).await });
 
@@ -66,10 +68,12 @@ async fn slow_ws_client_does_not_block_bus_loop_wall_clock() {
     register_all(&mut bus);
 
     let shutdown = CancellationToken::new();
+    let shared = DashboardShared::new(SessionInfo::live_sim(0.01));
     let server = try_start_server(
         0,
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("frontend/dist"),
         shutdown.clone(),
+        shared,
     )
     .await
     .unwrap();
@@ -92,7 +96,7 @@ async fn slow_ws_client_does_not_block_bus_loop_wall_clock() {
         shutdown: shutdown.clone(),
     };
 
-    let bus_loop = tokio::spawn(async move { run_bus_loop(ctx, Some(server.tx)).await });
+    let bus_loop = tokio::spawn(async move { run_bus_loop(ctx, Some(server.tx), None).await });
 
     const TICKS: u64 = 1000;
     const DT: Duration = Duration::from_millis(10);
@@ -119,6 +123,7 @@ fn push_snapshot_never_blocks_with_lagging_receivers() {
     let (tx, _rx) = tokio::sync::broadcast::channel(4);
     let _slow_a = tx.subscribe();
     let _slow_b = tx.subscribe();
+    let shared = DashboardShared::new(SessionInfo::live_sim(0.01));
 
     let snap = TickSnapshot::new(
         Timestamp {
@@ -133,6 +138,7 @@ fn push_snapshot_never_blocks_with_lagging_receivers() {
     for tick in 1..=10_000 {
         push_snapshot(
             &tx,
+            &shared,
             TickSnapshot::new(
                 Timestamp {
                     tick,

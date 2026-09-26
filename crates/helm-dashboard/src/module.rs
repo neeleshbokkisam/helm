@@ -8,13 +8,16 @@ use tracing::error;
 
 use helm_core::{module_topics, topics, Module, ModuleContext, ModuleError, ModuleTopics};
 
+use crate::shared::DashboardShared;
 use crate::snapshot::TickSnapshot;
+use crate::wire::{ended_json, tick_json};
 
 pub const BROADCAST_CAPACITY: usize = 64;
 
 pub struct DashboardConfig {
     pub port: u16,
     pub static_dir: PathBuf,
+    pub session: crate::wire::SessionInfo,
 }
 
 impl DashboardConfig {
@@ -22,7 +25,13 @@ impl DashboardConfig {
         Self {
             port,
             static_dir: default_static_dir(),
+            session: crate::wire::SessionInfo::live_sim(0.01),
         }
+    }
+
+    pub fn with_session(mut self, session: crate::wire::SessionInfo) -> Self {
+        self.session = session;
+        self
     }
 
     pub fn with_static_dir(mut self, static_dir: PathBuf) -> Self {
@@ -45,8 +54,20 @@ impl DashboardModule {
     }
 }
 
-pub fn push_snapshot(tx: &broadcast::Sender<String>, snapshot: TickSnapshot) {
-    let Some(json) = snapshot.to_json() else {
+pub fn push_snapshot(
+    tx: &broadcast::Sender<String>,
+    shared: &DashboardShared,
+    snapshot: TickSnapshot,
+) {
+    shared.push_history(snapshot.clone());
+    let Some(json) = tick_json(&snapshot) else {
+        return;
+    };
+    let _ = tx.send(json);
+}
+
+pub fn send_ended(tx: &broadcast::Sender<String>, final_tick: u64, reason: &str) {
+    let Some(json) = ended_json(final_tick, reason) else {
         return;
     };
     let _ = tx.send(json);
@@ -55,11 +76,13 @@ pub fn push_snapshot(tx: &broadcast::Sender<String>, snapshot: TickSnapshot) {
 pub async fn run_bus_loop(
     ctx: ModuleContext,
     tx: Option<broadcast::Sender<String>>,
+    shared: Option<DashboardShared>,
 ) -> Result<(), ModuleError> {
     let mut tick_rx = ctx.bus.subscribe_watch(&topics::TICK)?;
     let state_rx = ctx.bus.subscribe_watch(&topics::CART_POLE_STATE)?;
     let force_safe_rx = ctx.bus.subscribe_watch(&topics::FORCE_CMD_SAFE)?;
     let safety_rx = ctx.bus.subscribe_watch(&topics::SAFETY_STATUS)?;
+    let mut last_tick = 0u64;
 
     loop {
         tokio::select! {
@@ -69,17 +92,27 @@ pub async fn run_bus_loop(
                     break;
                 }
                 let timestamp = tick_rx.borrow_and_update().timestamp;
+                last_tick = timestamp.tick;
                 let snapshot = TickSnapshot::new(
                     timestamp,
                     *state_rx.borrow(),
                     force_safe_rx.borrow().force_n,
                     *safety_rx.borrow(),
                 );
-                if let Some(tx) = tx.as_ref() {
-                    push_snapshot(tx, snapshot);
+                if let (Some(tx), Some(shared)) = (tx.as_ref(), shared.as_ref()) {
+                    push_snapshot(tx, shared, snapshot);
                 }
             }
         }
+    }
+
+    if let Some(tx) = tx.as_ref() {
+        let reason = if ctx.shutdown.is_cancelled() {
+            "stopped"
+        } else {
+            "shutdown"
+        };
+        send_ended(tx, last_tick, reason);
     }
 
     Ok(())
@@ -104,24 +137,36 @@ impl Module for DashboardModule {
     }
 
     async fn run(&self, ctx: ModuleContext) -> Result<(), ModuleError> {
+        let shared = DashboardShared::new(self.config.session.clone());
         let tx = match crate::server::try_start_server(
             self.config.port,
             self.config.static_dir.clone(),
             ctx.shutdown.clone(),
+            shared.clone(),
         )
         .await
         {
-            Ok(server) => Some(server.tx),
+            Ok(server) => {
+                crate::preflight::print_startup_banner(server.addr, &self.config.session);
+                Some(server.tx)
+            }
             Err(e) => {
                 error!(
                     "dashboard: failed to bind port {} — live UI disabled; control loop continues ({e})",
                     self.config.port
                 );
+                eprintln!();
+                eprintln!(
+                    "dashboard failed to start on port {}: {e}",
+                    self.config.port
+                );
+                eprintln!("the control loop will continue without a web UI.");
+                eprintln!();
                 None
             }
         };
 
-        run_bus_loop(ctx, tx).await
+        run_bus_loop(ctx, tx, Some(shared)).await
     }
 }
 
@@ -138,11 +183,12 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn bus_loop_pushes_json_on_tick() {
+    async fn bus_loop_pushes_tick_envelope() {
         let (mut bus, handle) = TopicBus::new();
         register_all(&mut bus);
 
         let (tx, mut rx) = broadcast::channel(BROADCAST_CAPACITY);
+        let shared = DashboardShared::new(crate::wire::SessionInfo::live_sim(0.01));
 
         let mut runtime = Runtime::new(handle.clone());
         let ctx_bus = runtime.bus();
@@ -153,7 +199,8 @@ mod tests {
             shutdown: shutdown.clone(),
         };
 
-        let loop_handle = tokio::spawn(async move { run_bus_loop(ctx, Some(tx)).await });
+        let loop_handle =
+            tokio::spawn(async move { run_bus_loop(ctx, Some(tx), Some(shared)).await });
 
         let run =
             tokio::spawn(async move { runtime.run_for_ticks(3, Duration::from_millis(10)).await });
@@ -168,7 +215,7 @@ mod tests {
         loop_handle.await.unwrap().unwrap();
 
         let json = rx.recv().await.unwrap();
-        assert!(json.contains("\"tick\":"));
+        assert!(json.contains("\"type\":\"tick\""));
     }
 
     #[tokio::test(start_paused = true)]
@@ -185,7 +232,7 @@ mod tests {
             shutdown: shutdown.clone(),
         };
 
-        let loop_handle = tokio::spawn(async move { run_bus_loop(ctx, None).await });
+        let loop_handle = tokio::spawn(async move { run_bus_loop(ctx, None, None).await });
 
         let run =
             tokio::spawn(async move { runtime.run_for_ticks(2, Duration::from_millis(10)).await });
@@ -204,8 +251,10 @@ mod tests {
     fn push_snapshot_ignores_no_receivers() {
         let (tx, _rx) = broadcast::channel(BROADCAST_CAPACITY);
         drop(_rx);
+        let shared = DashboardShared::new(crate::wire::SessionInfo::live_sim(0.01));
         push_snapshot(
             &tx,
+            &shared,
             TickSnapshot::new(
                 Timestamp {
                     tick: 1,
