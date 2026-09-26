@@ -15,6 +15,7 @@ fn register_all(bus: &mut TopicBus) {
     bus.register(&topics::FORCE_CMD).unwrap();
     bus.register(&topics::FORCE_CMD_SAFE).unwrap();
     bus.register(&topics::SAFETY_STATUS).unwrap();
+    bus.register(&topics::LOOP_STATS).unwrap();
 }
 
 /// Paused-time, fully virtual: lagging broadcast receiver only (no TCP).

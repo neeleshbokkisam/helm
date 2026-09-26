@@ -415,6 +415,7 @@ async fn run(opts: RunOptions) -> Result<(), Box<dyn std::error::Error>> {
     bus.register(&topics::FORCE_CMD)?;
     bus.register(&topics::FORCE_CMD_SAFE)?;
     bus.register(&topics::SAFETY_STATUS)?;
+    bus.register(&topics::LOOP_STATS)?;
 
     let (stress_threads, core_count) = resolve_stress(opts.stress);
     let _stress = start_stress(stress_threads);
@@ -438,8 +439,6 @@ async fn run(opts: RunOptions) -> Result<(), Box<dyn std::error::Error>> {
         runtime.run_until_cancelled(dt).await?;
         return Ok(());
     }
-
-    bus.register(&topics::LOOP_STATS)?;
 
     let mut safety_config = SafetyConfig::new(opts.dt_ms);
     safety_config.halt_on_fault = opts.halt_on_fault;
