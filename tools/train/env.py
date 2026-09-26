@@ -80,21 +80,34 @@ def rk4_step(state: State, force: float, dt: float) -> State:
     )
 
 
-def simulate_zero_force(steps: int, dt: float, initial: State) -> list[list[float]]:
+def contract_force(step: int, profile: str) -> float:
+    if profile == "zero":
+        return 0.0
+    if profile == "step-sine":
+        if step < 100:
+            return 12.0
+        return 8.0 * math.sin(step * 0.05)
+    raise ValueError(profile)
+
+
+def simulate(steps: int, dt: float, initial: State, profile: str) -> list[list[float]]:
     state = initial
     traj = [state.as_list()]
-    for _ in range(steps):
-        state = rk4_step(state, 0.0, dt)
+    for step in range(steps):
+        state = rk4_step(state, contract_force(step, profile), dt)
         traj.append(state.as_list())
     return traj
 
 
 def main() -> None:
     if len(sys.argv) < 2 or sys.argv[1] != "--dump-trajectory":
-        print("usage: env.py --dump-trajectory", file=sys.stderr)
+        print("usage: env.py --dump-trajectory [--profile zero|step-sine]", file=sys.stderr)
         sys.exit(1)
+    profile = "zero"
+    if "--profile" in sys.argv:
+        profile = sys.argv[sys.argv.index("--profile") + 1]
 
-    traj = simulate_zero_force(500, DEFAULT_DT, State())
+    traj = simulate(500, DEFAULT_DT, State(), profile)
     json.dump(traj, sys.stdout)
 
 
