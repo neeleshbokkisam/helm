@@ -1,48 +1,102 @@
 # helm
 
-Async robot control runtime: cart-pole sim, PD stabilizer, safety monitor, and optional live dashboard.
+[![ci](https://github.com/neeleshbokkisam/helm/actions/workflows/ci.yml/badge.svg)](https://github.com/neeleshbokkisam/helm/actions/workflows/ci.yml)
 
-## Quick demo (recommended)
+100 Hz cart-pole loop: sim or a fake serial plant, PD or a trained ONNX policy, and a safety monitor that can drop the force.
 
-Build the dashboard UI once:
-
-```bash
-cd crates/helm-dashboard/frontend
-npm ci
-npm run build
+```text
+tick --> plant --> state --> PD or ONNX --> force_cmd --> safety --> force_cmd_safe --> plant
 ```
 
-Live sim demo — pole starts tilted, stabilizes in ~5 s, then **auto-resets every ~15 s** (runs until Ctrl-C):
+## Quickstart
 
 ```bash
+cd crates/helm-dashboard/frontend && npm ci && npm run build
 cargo run -p helm-cli --features dashboard -- --demo
 ```
 
-Open **http://127.0.0.1:8080** while the terminal is still running. Connect anytime — the next reset replays tilt → settle.
+Open http://127.0.0.1:8080. The pole starts at 0.3 rad and the sim resets every 15 s. Ctrl-C stops it.
 
-Looped offline replay (~6 s of action per loop, no static tail):
-
-```bash
-cargo run -p helm-cli --features dashboard -- \
-  --replay demos/cart_pole_showcase.csv
-```
-
-Full 15 s recording (includes ~8 s settled tail between loops):
+Timing under load (default thread count is the machine's parallelism):
 
 ```bash
-cargo run -p helm-cli --features dashboard -- \
-  --replay demos/cart_pole_settle.csv
+cargo run -p helm-cli --features dashboard -- --demo --stress 4
 ```
 
-## Basic run (no UI)
+Fake serial plant, labeled as a PTY, not a device:
 
 ```bash
-cargo run -p helm-cli -- --seconds 5 --csv out.csv
+scripts/demo-fake-serial.sh
 ```
 
-## Tests
+Fault on the dashboard (the pole falls after the latch because force goes to zero; restart the process to arm again):
 
 ```bash
-cargo test
-cargo test -p helm-cli --features dashboard
+cargo run -p helm-cli --features dashboard -- --demo --fault force-overshoot --fault-at 200
 ```
+
+## 100 Hz
+
+The tick loop is `tokio::time::interval` at 10 ms with `MissedTickBehavior::Skip`. The dashboard shows rate, jitter against that schedule, pipeline misses, and a period chart with a 10 ms line. A miss means `force_cmd_safe` for tick k was not published before tick k+1 fired. `--stress N` runs N burner threads; `--stress` alone uses one per core.
+
+This is a desktop sleep/interval loop. It is not an RTOS deadline, and an idle Mac will still miss.
+
+## Settle
+
+`--demo` starts at about 17° and the PD controller stands the pole up in the first few seconds of each 15 s cycle. Record `docs/media/settle.gif` from http://127.0.0.1:8080 during that catch.
+
+## Plant swap
+
+`--plant sim` is the in-process model. `--plant fake-serial` is `--backend hardware --spawn-fake-device` and the UI says "simulated serial device (PTY), not physical hardware." `--backend` still works. `fake-serial` requires `--features hardware`.
+
+## Safety
+
+The chart plots commanded force in red and the force safety forwards in green. A latched fault holds the safe force at 0. The badge names the latch (`force out of range`, `state stale`, `command stale`) and stays red across the 15 s physics reset. `--fault stale-command` is an alias of `dropped-cmd`.
+
+```text
+running 3 tests
+test rejects_out_of_range_force ... ok
+test drops_stale_state ... ok
+test zeros_force_on_stale_command ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+```
+
+`cargo test -p helm-cli --test safety_faults --features dashboard,hardware,onnx`
+
+## Physics contract
+
+`cargo test -p helm-sim --test physics_contract` runs the Rust RK4 and `python3 tools/train/env.py --dump-trajectory` for 500 steps at `dt = 0.01` (501 samples, including t = 0). Each of `x`, `x_dot`, `theta`, `theta_dot` must match within `1e-10`. There are two cases: zero force, and a step of 12 N for 100 steps followed by `8 sin(0.05 · step)`. `1e-10` is the bar for two implementations of the same RK4, not for physical accuracy. Over 500 steps of f64, identical formulas should agree far below that; anything larger is a sign, mass, or integrator bug.
+
+## PD vs ONNX
+
+Both controllers balance ±0.05, ±0.1, and ±0.2 rad. The ONNX file is a linear policy trained to imitate PD, and the numbers are close, with PD slightly quicker. Table, command, and plot: [docs/pd_vs_onnx.md](docs/pd_vs_onnx.md).
+
+## Serial RTT
+
+`tools/pty-rtt-bench` echoes 32 bytes on a PTY. Raw mode never calls `cfsetospeed`, so the round trip is scheduler latency and does not change with baud. Modeled mode sleeps `10 · n / baud` before the send and again before the echo (8N1, both legs). That column is modeled byte time on a PTY, not a UART. At 9600 the two legs are about 67 ms and that dominates the median.
+
+| mode | baud | p50 (ms) | p99 (ms) |
+| --- | ---: | ---: | ---: |
+| raw | — | 0.020 | 0.027 |
+| modeled | 9600 | 74.65 | 80.12 |
+| modeled | 115200 | 8.58 | 10.45 |
+| modeled | 921600 | 2.07 | 3.68 |
+
+```bash
+cargo run --manifest-path tools/pty-rtt-bench/Cargo.toml -- --mode raw
+cargo run --manifest-path tools/pty-rtt-bench/Cargo.toml -- --mode modeled --baud 9600
+```
+
+## Recordings
+
+Ten-second GIFs, width 960, under 8 MB, from http://127.0.0.1:8080 after `dashboard ready`:
+
+- `docs/media/settle.gif` — `--demo`, from the tilt through upright.
+- `docs/media/loop-stress.gif` — `--demo --stress 4`, Hz, jitter, misses, and the 10 ms line.
+- `docs/media/plant-swap.gif` — `scripts/demo-fake-serial.sh`, including the PTY label.
+- `docs/media/fault.gif` — `--demo --fault force-overshoot --fault-at 200`. Start just before 2 s. The badge goes green to red, safe force hits zero, and the pole falls because safety zeroed the command. End on the red latch. A new process is required to arm again.
+
+## Limits
+
+The scheduler is a desktop interval, not an RTOS. The PTY is not a UART. The ONNX policy is a linear fit to PD, not a controller that beat it. The safety latch is sticky. The hardware soak is 120 s, which is not a proof against every quantization plateau.
