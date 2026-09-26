@@ -14,6 +14,11 @@ export function StatusBanner({ phase, snapshot, hello }: Props) {
 
   return (
     <section className={`status-banner phase-${phase}`} aria-live="polite">
+      {hello?.backend === "fake-serial" && (
+        <p className="status-message">
+          Plant: simulated serial device (PTY), not physical hardware.
+        </p>
+      )}
       <p className="status-message">{message}</p>
       {snapshot != null && (
         <p className="status-meta">

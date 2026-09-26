@@ -44,6 +44,16 @@ impl SessionInfo {
         }
     }
 
+    pub fn live_fake_serial(dt_secs: f64) -> Self {
+        Self {
+            mode: "live",
+            backend: "fake-serial",
+            dt_secs,
+            initial_theta_rad: helm_core::CartPoleState::INITIAL.theta,
+            loops: false,
+        }
+    }
+
     pub fn live_hardware(dt_secs: f64) -> Self {
         Self {
             mode: "live",

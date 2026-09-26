@@ -15,7 +15,9 @@ export function SafetyBadge({ safety }: Props) {
       <div>
         <strong>{latched ? "Safety fault latched" : "Safety OK — force allowed through"}</strong>
         <div className="sub">
-          {latched ? label : "Zeros force if a fault latches"}
+          {latched
+            ? `${label}. Latch stays until the process restarts.`
+            : "Zeros force if a fault latches"}
         </div>
       </div>
     </div>

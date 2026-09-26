@@ -35,6 +35,13 @@ enum Controller {
     Policy,
 }
 
+#[derive(Clone, Copy)]
+enum StressChoice {
+    Off,
+    Auto,
+    Fixed(u32),
+}
+
 struct RunOptions {
     seconds: u64,
     dt_ms: u64,
@@ -63,12 +70,33 @@ struct RunOptions {
     controller: Controller,
     #[cfg(feature = "onnx")]
     model: Option<PathBuf>,
+    stress: StressChoice,
+}
+
+fn plant_requests_fake_serial(name: &str) -> Result<bool, String> {
+    match name {
+        "sim" => Ok(false),
+        "fake-serial" => {
+            #[cfg(feature = "hardware")]
+            {
+                Ok(true)
+            }
+            #[cfg(not(feature = "hardware"))]
+            {
+                Err("fake-serial requires building with --features hardware".into())
+            }
+        }
+        other => Err(format!("unknown plant: {other}")),
+    }
 }
 
 fn usage() {
-    eprintln!("usage: helm [--seconds N] [--dt-ms N] [--csv PATH]");
-    eprintln!("       [--fault force-overshoot|stale-state|dropped-cmd --fault-at N]");
+    eprintln!("usage: helm [--seconds N] [--dt-ms N] [--csv PATH] [--stress [N]]");
+    eprintln!(
+        "       [--fault force-overshoot|stale-state|dropped-cmd|stale-command --fault-at N]"
+    );
     eprintln!("       [--halt-on-fault]");
+    eprintln!("       [--plant sim|fake-serial]");
     #[cfg(feature = "hardware")]
     {
         eprintln!("       [--backend sim|hardware [--spawn-fake-device | --pty-path PATH]]");
@@ -117,8 +145,9 @@ fn parse_args() -> Result<RunOptions, String> {
     let mut controller = Controller::Stabilizer;
     #[cfg(feature = "onnx")]
     let mut model = None;
+    let mut stress = StressChoice::Off;
 
-    let mut args = env::args().skip(1);
+    let mut args = env::args().skip(1).peekable();
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--seconds" => {
@@ -148,6 +177,30 @@ fn parse_args() -> Result<RunOptions, String> {
                 );
             }
             "--halt-on-fault" => halt_on_fault = true,
+            "--plant" => {
+                let name = args.next().ok_or("missing value for --plant")?;
+                let fake = plant_requests_fake_serial(&name)?;
+                #[cfg(feature = "hardware")]
+                {
+                    backend = if fake {
+                        Backend::Hardware
+                    } else {
+                        Backend::Sim
+                    };
+                    spawn_fake_device = fake;
+                }
+                #[cfg(not(feature = "hardware"))]
+                let _ = fake;
+            }
+            "--stress" => {
+                if args.peek().is_some_and(|v| !v.starts_with('-')) {
+                    let raw = args.next().unwrap();
+                    let n = raw.parse().map_err(|_| "invalid --stress")?;
+                    stress = StressChoice::Fixed(n);
+                } else {
+                    stress = StressChoice::Auto;
+                }
+            }
             #[cfg(feature = "hardware")]
             "--backend" => {
                 backend = match args.next().ok_or("missing value for --backend")?.as_str() {
@@ -300,7 +353,45 @@ fn parse_args() -> Result<RunOptions, String> {
         controller,
         #[cfg(feature = "onnx")]
         model,
+        stress,
     })
+}
+
+fn resolve_stress(choice: StressChoice) -> (u32, u32) {
+    let cores = std::thread::available_parallelism()
+        .map(|n| n.get() as u32)
+        .unwrap_or(1);
+    let threads = match choice {
+        StressChoice::Off => 0,
+        StressChoice::Auto => cores,
+        StressChoice::Fixed(n) => n,
+    };
+    (threads, cores)
+}
+
+fn start_stress(threads: u32) -> StressGuard {
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    for _ in 0..threads {
+        let stop = stop.clone();
+        std::thread::spawn(move || {
+            let mut x = 0u64;
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                x = x.wrapping_mul(1664525).wrapping_add(1013904223);
+                std::hint::black_box(x);
+            }
+        });
+    }
+    StressGuard { stop }
+}
+
+struct StressGuard {
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl Drop for StressGuard {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 #[cfg(feature = "dashboard")]
@@ -325,6 +416,8 @@ async fn run(opts: RunOptions) -> Result<(), Box<dyn std::error::Error>> {
     bus.register(&topics::FORCE_CMD_SAFE)?;
     bus.register(&topics::SAFETY_STATUS)?;
 
+    let (stress_threads, core_count) = resolve_stress(opts.stress);
+    let _stress = start_stress(stress_threads);
     let dt = Duration::from_millis(opts.dt_ms);
 
     #[cfg(feature = "dashboard")]
@@ -332,6 +425,7 @@ async fn run(opts: RunOptions) -> Result<(), Box<dyn std::error::Error>> {
         let initial_theta = ReplayModule::initial_theta(&path)?;
         let session = SessionInfo::replay(dt.as_secs_f64(), initial_theta);
         let mut runtime = Runtime::new(handle);
+        runtime.set_load(stress_threads, core_count);
         runtime.add_module(Box::new(ReplayModule::new(path, opts.dt_ms)))?;
         runtime.add_module(Box::new(DashboardModule::new(
             DashboardConfig::new(opts.dashboard_port).with_session(session),
@@ -345,10 +439,13 @@ async fn run(opts: RunOptions) -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    bus.register(&topics::LOOP_STATS)?;
+
     let mut safety_config = SafetyConfig::new(opts.dt_ms);
     safety_config.halt_on_fault = opts.halt_on_fault;
 
     let mut runtime = Runtime::new(handle);
+    runtime.set_load(stress_threads, core_count);
     #[cfg(feature = "hardware")]
     match opts.backend {
         Backend::Sim => {
@@ -427,8 +524,12 @@ async fn run(opts: RunOptions) -> Result<(), Box<dyn std::error::Error>> {
     if opts.dashboard {
         let dt_secs = dt.as_secs_f64();
         #[cfg(feature = "hardware")]
-        let session = if opts.backend == Backend::Hardware {
+        let session = if opts.spawn_fake_device {
+            SessionInfo::live_fake_serial(dt_secs)
+        } else if opts.backend == Backend::Hardware {
             SessionInfo::live_hardware(dt_secs)
+        } else if opts.demo {
+            SessionInfo::live_sim_demo(dt_secs, 0.3)
         } else {
             SessionInfo::live_sim(dt_secs)
         };
@@ -464,6 +565,23 @@ async fn run(opts: RunOptions) -> Result<(), Box<dyn std::error::Error>> {
     runtime.run_for_ticks(ticks, dt).await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::plant_requests_fake_serial;
+
+    #[test]
+    fn fake_serial_plant_spawns_a_pty_device() {
+        assert_eq!(plant_requests_fake_serial("sim").unwrap(), false);
+        assert!(plant_requests_fake_serial("uart").is_err());
+        #[cfg(feature = "hardware")]
+        assert_eq!(plant_requests_fake_serial("fake-serial").unwrap(), true);
+        #[cfg(not(feature = "hardware"))]
+        assert!(plant_requests_fake_serial("fake-serial")
+            .unwrap_err()
+            .contains("hardware"));
+    }
 }
 
 #[tokio::main]

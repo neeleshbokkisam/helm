@@ -1,4 +1,4 @@
-use helm_core::{CartPoleState, SafetyStatus, Timestamp};
+use helm_core::{CartPoleState, LoopStats, SafetyStatus, Timestamp};
 use serde::Serialize;
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -6,8 +6,10 @@ pub struct TickSnapshot {
     pub tick: u64,
     pub dt_secs: f64,
     pub state: CartPoleState,
+    pub force_cmd_n: f64,
     pub force_safe_n: f64,
     pub safety: SafetyStatus,
+    pub loop_stats: LoopStats,
 }
 
 impl TickSnapshot {
@@ -21,8 +23,10 @@ impl TickSnapshot {
             tick: timestamp.tick,
             dt_secs: timestamp.dt_secs,
             state,
+            force_cmd_n: force_safe_n,
             force_safe_n,
             safety,
+            loop_stats: LoopStats::INITIAL,
         }
     }
 
@@ -44,7 +48,10 @@ mod tests {
             1.5,
             topics::SAFETY_STATUS.seed,
         );
+        let mut snap = snap;
+        snap.force_cmd_n = 3.0;
         let json = snap.to_json().unwrap();
+        assert!(json.contains("\"force_cmd_n\":3.0"));
         assert!(json.contains("\"force_safe_n\":1.5"));
         assert!(json.contains("\"theta\":0.05"));
     }

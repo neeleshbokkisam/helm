@@ -6,7 +6,10 @@ use tokio_util::sync::CancellationToken;
 
 use crate::bus::BusHandle;
 use crate::error::{BusError, HelmError, ModuleError};
-use crate::message::{topics, Tick, Timestamp};
+use crate::message::{
+    hz_from_period_us, percentile, pipeline_miss, topics, LoopStats, SafetyStatus, Tick, Timestamp,
+    LOOP_STATS_WINDOW,
+};
 use crate::module::{Module, ModuleBus, ModuleContext};
 
 pub struct Runtime {
@@ -17,6 +20,8 @@ pub struct Runtime {
     tick_handle: Option<JoinHandle<()>>,
     started: bool,
     publishers: HashSet<&'static str>,
+    stress_threads: u32,
+    core_count: u32,
 }
 
 impl Runtime {
@@ -29,7 +34,14 @@ impl Runtime {
             tick_handle: None,
             started: false,
             publishers: HashSet::new(),
+            stress_threads: 0,
+            core_count: 0,
         }
+    }
+
+    pub fn set_load(&mut self, stress_threads: u32, core_count: u32) {
+        self.stress_threads = stress_threads;
+        self.core_count = core_count;
     }
 
     /// Raw bus handle without topic-declaration enforcement.
@@ -73,22 +85,15 @@ impl Runtime {
     pub async fn run_for_ticks(&mut self, n: u64, dt: Duration) -> Result<(), HelmError> {
         self.start().await?;
 
-        let bus = self.bus.clone();
-        let shutdown = self.shutdown.clone();
-        let tick_handle = tokio::spawn(async move {
-            for tick in 1..=n {
-                if shutdown.is_cancelled() {
-                    break;
-                }
-                let ts = Timestamp {
-                    tick,
-                    dt_secs: dt.as_secs_f64(),
-                };
-                let _ = bus.publish_watch(&topics::TICK, Tick { timestamp: ts });
-                tokio::time::sleep(dt).await;
-            }
-            shutdown.cancel();
-        });
+        let tick_handle = spawn_tick_loop(
+            self.bus.clone(),
+            self.shutdown.clone(),
+            dt,
+            Some(n),
+            true,
+            self.stress_threads,
+            self.core_count,
+        );
         self.tick_handle = Some(tick_handle);
 
         for handle in self.handles.drain(..) {
@@ -113,23 +118,15 @@ impl Runtime {
     pub async fn run_until_cancelled(&mut self, dt: Duration) -> Result<(), HelmError> {
         self.start().await?;
 
-        let bus = self.bus.clone();
-        let shutdown = self.shutdown.clone();
-        let tick_handle = tokio::spawn(async move {
-            let mut tick = 0u64;
-            loop {
-                if shutdown.is_cancelled() {
-                    break;
-                }
-                tick += 1;
-                let ts = Timestamp {
-                    tick,
-                    dt_secs: dt.as_secs_f64(),
-                };
-                let _ = bus.publish_watch(&topics::TICK, Tick { timestamp: ts });
-                tokio::time::sleep(dt).await;
-            }
-        });
+        let tick_handle = spawn_tick_loop(
+            self.bus.clone(),
+            self.shutdown.clone(),
+            dt,
+            None,
+            false,
+            self.stress_threads,
+            self.core_count,
+        );
         self.tick_handle = Some(tick_handle);
 
         for handle in self.handles.drain(..) {
@@ -148,10 +145,163 @@ impl Runtime {
     }
 }
 
+fn spawn_tick_loop(
+    bus: BusHandle,
+    shutdown: CancellationToken,
+    dt: Duration,
+    max_ticks: Option<u64>,
+    cancel_when_done: bool,
+    stress_threads: u32,
+    core_count: u32,
+) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(dt);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut scheduled = tokio::time::Instant::now();
+        let mut safety_rx = bus.subscribe_watch(&topics::SAFETY_STATUS).ok();
+        let mut tick = 0u64;
+        let mut miss_count = 0u64;
+        let mut jitter_window: std::collections::VecDeque<i64> =
+            std::collections::VecDeque::with_capacity(LOOP_STATS_WINDOW);
+        let mut last_fire: Option<tokio::time::Instant> = None;
+        let mut skip_wait = false;
+
+        loop {
+            if shutdown.is_cancelled() {
+                break;
+            }
+            if max_ticks.is_some_and(|max| tick >= max) {
+                break;
+            }
+            if !skip_wait {
+                interval.tick().await;
+            }
+            skip_wait = false;
+            if shutdown.is_cancelled() {
+                break;
+            }
+
+            let fired = tokio::time::Instant::now();
+            let jitter_us = signed_micros(fired, scheduled);
+            let period_us = match last_fire {
+                Some(prev) => fired.saturating_duration_since(prev).as_micros() as u64,
+                None => 0,
+            };
+            last_fire = Some(fired);
+
+            let safe_tick = safety_rx.as_ref().map(|rx| rx.borrow().tick).unwrap_or(0);
+            let miss = pipeline_miss(tick, safe_tick);
+            if miss {
+                miss_count = miss_count.saturating_add(1);
+            }
+
+            tick += 1;
+            let _ = bus.publish_watch(
+                &topics::TICK,
+                Tick {
+                    timestamp: Timestamp {
+                        tick,
+                        dt_secs: dt.as_secs_f64(),
+                    },
+                },
+            );
+            let published_at = tokio::time::Instant::now();
+            scheduled = next_deadline(scheduled, fired, dt);
+
+            let is_last = max_ticks == Some(tick);
+            let mut compute_us = 0u64;
+            if let Some(rx) = safety_rx.as_mut() {
+                tokio::select! {
+                    biased;
+                    _ = shutdown.cancelled() => break,
+                    _ = wait_for_safety_tick(rx, tick) => {
+                        compute_us = published_at.elapsed().as_micros() as u64;
+                    }
+                    _ = interval.tick(), if !is_last => {
+                        skip_wait = true;
+                    }
+                    _ = tokio::time::sleep(dt), if is_last => {}
+                }
+            }
+
+            if jitter_window.len() == LOOP_STATS_WINDOW {
+                jitter_window.pop_front();
+            }
+            jitter_window.push_back(jitter_us);
+            let samples: Vec<i64> = jitter_window.iter().copied().collect();
+            let _ = bus.publish_watch(
+                &topics::LOOP_STATS,
+                LoopStats {
+                    tick,
+                    period_us,
+                    jitter_us,
+                    jitter_p50_us: percentile(&samples, 50.0),
+                    jitter_p99_us: percentile(&samples, 99.0),
+                    jitter_max_us: samples.iter().copied().max().unwrap_or(0),
+                    compute_us,
+                    miss,
+                    miss_count,
+                    hz: hz_from_period_us(period_us),
+                    stress_threads,
+                    core_count,
+                },
+            );
+
+            if is_last || shutdown.is_cancelled() {
+                break;
+            }
+        }
+
+        if cancel_when_done {
+            shutdown.cancel();
+        }
+    })
+}
+
+fn signed_micros(fired: tokio::time::Instant, scheduled: tokio::time::Instant) -> i64 {
+    if fired >= scheduled {
+        fired.saturating_duration_since(scheduled).as_micros() as i64
+    } else {
+        -(scheduled.saturating_duration_since(fired).as_micros() as i64)
+    }
+}
+
+fn next_deadline(
+    scheduled: tokio::time::Instant,
+    fired: tokio::time::Instant,
+    period: Duration,
+) -> tokio::time::Instant {
+    if period.is_zero() {
+        return fired;
+    }
+    let late = fired.saturating_duration_since(scheduled);
+    if late.is_zero() {
+        return scheduled + period;
+    }
+    let steps = late.as_nanos().div_ceil(period.as_nanos()).max(1);
+    let candidate = scheduled + period * (steps as u32);
+    if candidate <= fired {
+        candidate + period
+    } else {
+        candidate
+    }
+}
+
+async fn wait_for_safety_tick(rx: &mut tokio::sync::watch::Receiver<SafetyStatus>, tick: u64) {
+    loop {
+        if rx.borrow().tick == tick {
+            return;
+        }
+        if rx.changed().await.is_err() {
+            return;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::message::ModuleTopics;
+    use crate::message::{percentile, pipeline_miss, ModuleTopics};
     use crate::TopicBus;
     use async_trait::async_trait;
 
@@ -245,5 +395,35 @@ mod tests {
             tokio::time::advance(Duration::from_millis(10)).await;
         }
         run.await.unwrap();
+    }
+
+    #[test]
+    fn percentile_ranks_synthetic_jitter() {
+        let samples = [1_000, 2_000, 3_000, 9_500, 10_100];
+        assert_eq!(percentile(&samples, 50.0), 3_000);
+        assert_eq!(percentile(&samples, 99.0), 10_100);
+        assert_eq!(samples.iter().copied().max().unwrap(), 10_100);
+    }
+
+    #[test]
+    fn pipeline_miss_ignores_gap_size() {
+        assert!(!pipeline_miss(0, 0));
+        assert!(!pipeline_miss(4, 4));
+        assert!(pipeline_miss(4, 3));
+    }
+
+    #[test]
+    fn skip_deadline_lands_on_the_next_future_slot() {
+        let start = tokio::time::Instant::now();
+        let period = Duration::from_millis(10);
+        assert_eq!(next_deadline(start, start, period), start + period);
+        assert_eq!(
+            next_deadline(start, start + Duration::from_micros(9_500), period),
+            start + period
+        );
+        assert_eq!(
+            next_deadline(start, start + Duration::from_micros(10_100), period),
+            start + period * 2
+        );
     }
 }

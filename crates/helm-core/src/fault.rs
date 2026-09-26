@@ -22,7 +22,7 @@ impl FaultConfig {
                 force_n: 999.0,
             },
             "stale-state" => FaultKind::StaleState { after_tick: at },
-            "dropped-cmd" => FaultKind::DropCommand { after_tick: at },
+            "dropped-cmd" | "stale-command" => FaultKind::DropCommand { after_tick: at },
             other => return Err(format!("unknown fault: {other}")),
         };
         Ok(Self { kind: Some(kind) })
@@ -38,5 +38,17 @@ mod tests {
         assert_eq!(stale_ticks(50, 10), 5);
         assert_eq!(stale_ticks(50, 20), 3);
         assert_eq!(stale_ticks(50, 7), 8);
+    }
+
+    #[test]
+    fn stale_command_is_dropped_cmd() {
+        use super::{FaultConfig, FaultKind};
+        let alias = FaultConfig::from_cli("stale-command", 12).unwrap();
+        let named = FaultConfig::from_cli("dropped-cmd", 12).unwrap();
+        assert_eq!(alias, named);
+        assert!(matches!(
+            alias.kind,
+            Some(FaultKind::DropCommand { after_tick: 12 })
+        ));
     }
 }

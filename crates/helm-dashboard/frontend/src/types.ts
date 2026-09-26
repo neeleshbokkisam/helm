@@ -16,12 +16,29 @@ export interface SafetyStatus {
   tick: number;
 }
 
+export interface LoopStats {
+  tick: number;
+  period_us: number;
+  jitter_us: number;
+  jitter_p50_us: number;
+  jitter_p99_us: number;
+  jitter_max_us: number;
+  compute_us: number;
+  miss: boolean;
+  miss_count: number;
+  hz: number;
+  stress_threads: number;
+  core_count: number;
+}
+
 export interface TickSnapshot {
   tick: number;
   dt_secs: number;
   state: CartPoleState;
+  force_cmd_n?: number;
   force_safe_n: number;
   safety: SafetyStatus;
+  loop_stats?: LoopStats;
 }
 
 export interface HelloMessage {

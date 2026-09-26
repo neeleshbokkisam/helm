@@ -80,27 +80,60 @@ pub async fn run_bus_loop(
 ) -> Result<(), ModuleError> {
     let mut tick_rx = ctx.bus.subscribe_watch(&topics::TICK)?;
     let state_rx = ctx.bus.subscribe_watch(&topics::CART_POLE_STATE)?;
+    let force_rx = ctx.bus.subscribe_watch(&topics::FORCE_CMD)?;
     let force_safe_rx = ctx.bus.subscribe_watch(&topics::FORCE_CMD_SAFE)?;
     let safety_rx = ctx.bus.subscribe_watch(&topics::SAFETY_STATUS)?;
+    let stats_rx = ctx.bus.subscribe_watch(&topics::LOOP_STATS).ok();
     let mut last_tick = 0u64;
 
-    loop {
-        tokio::select! {
-            _ = ctx.shutdown.cancelled() => break,
-            changed = tick_rx.changed() => {
-                if changed.is_err() {
-                    break;
+    if let Some(mut stats_rx) = stats_rx {
+        loop {
+            tokio::select! {
+                _ = ctx.shutdown.cancelled() => break,
+                changed = stats_rx.changed() => {
+                    if changed.is_err() {
+                        break;
+                    }
+                    let loop_stats = *stats_rx.borrow_and_update();
+                    let dt_secs = tick_rx.borrow().timestamp.dt_secs;
+                    last_tick = loop_stats.tick;
+                    let mut snapshot = TickSnapshot::new(
+                        helm_core::Timestamp {
+                            tick: loop_stats.tick,
+                            dt_secs,
+                        },
+                        *state_rx.borrow(),
+                        force_safe_rx.borrow().force_n,
+                        *safety_rx.borrow(),
+                    );
+                    snapshot.force_cmd_n = force_rx.borrow().force_n;
+                    snapshot.loop_stats = loop_stats;
+                    if let (Some(tx), Some(shared)) = (tx.as_ref(), shared.as_ref()) {
+                        push_snapshot(tx, shared, snapshot);
+                    }
                 }
-                let timestamp = tick_rx.borrow_and_update().timestamp;
-                last_tick = timestamp.tick;
-                let snapshot = TickSnapshot::new(
-                    timestamp,
-                    *state_rx.borrow(),
-                    force_safe_rx.borrow().force_n,
-                    *safety_rx.borrow(),
-                );
-                if let (Some(tx), Some(shared)) = (tx.as_ref(), shared.as_ref()) {
-                    push_snapshot(tx, shared, snapshot);
+            }
+        }
+    } else {
+        loop {
+            tokio::select! {
+                _ = ctx.shutdown.cancelled() => break,
+                changed = tick_rx.changed() => {
+                    if changed.is_err() {
+                        break;
+                    }
+                    let timestamp = tick_rx.borrow_and_update().timestamp;
+                    last_tick = timestamp.tick;
+                    let mut snapshot = TickSnapshot::new(
+                        timestamp,
+                        *state_rx.borrow(),
+                        force_safe_rx.borrow().force_n,
+                        *safety_rx.borrow(),
+                    );
+                    snapshot.force_cmd_n = force_rx.borrow().force_n;
+                    if let (Some(tx), Some(shared)) = (tx.as_ref(), shared.as_ref()) {
+                        push_snapshot(tx, shared, snapshot);
+                    }
                 }
             }
         }
@@ -129,6 +162,7 @@ impl Module for DashboardModule {
             sub: [
                 topics::TICK,
                 topics::CART_POLE_STATE,
+                topics::FORCE_CMD,
                 topics::FORCE_CMD_SAFE,
                 topics::SAFETY_STATUS,
             ],
@@ -178,6 +212,7 @@ mod tests {
     fn register_all(bus: &mut TopicBus) {
         bus.register(&topics::TICK).unwrap();
         bus.register(&topics::CART_POLE_STATE).unwrap();
+        bus.register(&topics::FORCE_CMD).unwrap();
         bus.register(&topics::FORCE_CMD_SAFE).unwrap();
         bus.register(&topics::SAFETY_STATUS).unwrap();
     }

@@ -67,6 +67,71 @@ pub struct Tick {
     pub timestamp: Timestamp,
 }
 
+pub const LOOP_STATS_WINDOW: usize = 2048;
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub struct LoopStats {
+    pub tick: u64,
+    pub period_us: u64,
+    pub jitter_us: i64,
+    pub jitter_p50_us: i64,
+    pub jitter_p99_us: i64,
+    pub jitter_max_us: i64,
+    pub compute_us: u64,
+    pub miss: bool,
+    pub miss_count: u64,
+    pub hz: f64,
+    pub stress_threads: u32,
+    pub core_count: u32,
+}
+
+impl LoopStats {
+    pub const INITIAL: Self = Self {
+        tick: 0,
+        period_us: 0,
+        jitter_us: 0,
+        jitter_p50_us: 0,
+        jitter_p99_us: 0,
+        jitter_max_us: 0,
+        compute_us: 0,
+        miss: false,
+        miss_count: 0,
+        hz: 0.0,
+        stress_threads: 0,
+        core_count: 0,
+    };
+}
+
+impl Default for LoopStats {
+    fn default() -> Self {
+        Self::INITIAL
+    }
+}
+
+/// Safe force for `previous_tick` was not on the bus when the next tick fired.
+pub fn pipeline_miss(previous_tick: u64, safe_tick: u64) -> bool {
+    previous_tick > 0 && safe_tick != previous_tick
+}
+
+pub fn percentile(samples: &[i64], pct: f64) -> i64 {
+    if samples.is_empty() {
+        return 0;
+    }
+    let mut sorted = samples.to_vec();
+    sorted.sort_unstable();
+    let last = sorted.len() - 1;
+    let idx = ((pct / 100.0) * last as f64).round() as usize;
+    sorted[idx.min(last)]
+}
+
+pub fn hz_from_period_us(period_us: u64) -> f64 {
+    if period_us == 0 {
+        0.0
+    } else {
+        1_000_000.0 / period_us as f64
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TopicKind {
     Watch,
@@ -120,6 +185,9 @@ pub mod topics {
 
     pub const SAFETY_STATUS: Topic<SafetyStatus> =
         Topic::new("state/safety", TopicKind::Watch, SafetyStatus::INITIAL);
+
+    pub const LOOP_STATS: Topic<LoopStats> =
+        Topic::new("clock/loop_stats", TopicKind::Watch, LoopStats::INITIAL);
 }
 
 #[macro_export]

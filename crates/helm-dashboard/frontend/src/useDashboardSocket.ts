@@ -33,14 +33,18 @@ function seedHistories(snapshots: TickSnapshot[]) {
   return snapshots.reduce(
     (acc, s) => ({
       force: appendClamped(acc.force, s.force_safe_n),
+      forceCmd: appendClamped(acc.forceCmd, s.force_cmd_n ?? s.force_safe_n),
       theta: appendClamped(acc.theta, s.state.theta),
       x: appendClamped(acc.x, s.state.x),
+      period: appendClamped(acc.period, (s.loop_stats?.period_us ?? 0) / 1000),
       states: appendStateWindow(acc.states, s.state),
     }),
     {
       force: [] as number[],
+      forceCmd: [] as number[],
       theta: [] as number[],
       x: [] as number[],
+      period: [] as number[],
       states: [] as CartPoleState[],
     },
   );
@@ -58,8 +62,10 @@ export function useDashboardSocket() {
   const [snapshot, setSnapshot] = useState<TickSnapshot | null>(null);
   const [hello, setHello] = useState<HelloMessage | null>(null);
   const [forceHistory, setForceHistory] = useState<number[]>([]);
+  const [forceCmdHistory, setForceCmdHistory] = useState<number[]>([]);
   const [thetaHistory, setThetaHistory] = useState<number[]>([]);
   const [xHistory, setXHistory] = useState<number[]>([]);
+  const [periodHistory, setPeriodHistory] = useState<number[]>([]);
   const [stateWindow, setStateWindow] = useState<CartPoleState[]>([]);
   const [status, setStatus] = useState<ConnectionStatus>("disconnected");
   const [runEnded, setRunEnded] = useState(false);
@@ -127,8 +133,10 @@ export function useDashboardSocket() {
             const hist = data as unknown as HistoryMessage;
             const seeded = seedHistories(hist.snapshots);
             setForceHistory(seeded.force);
+            setForceCmdHistory(seeded.forceCmd);
             setThetaHistory(seeded.theta);
             setXHistory(seeded.x);
+            setPeriodHistory(seeded.period);
             setStateWindow(seeded.states);
             const last = hist.snapshots[hist.snapshots.length - 1];
             if (last) setSnapshot(last);
@@ -150,8 +158,14 @@ export function useDashboardSocket() {
           if (kind === "tick" && isTickSnapshot(data)) {
             setSnapshot(data);
             setForceHistory((prev) => appendClamped(prev, data.force_safe_n));
+            setForceCmdHistory((prev) =>
+              appendClamped(prev, data.force_cmd_n ?? data.force_safe_n),
+            );
             setThetaHistory((prev) => appendClamped(prev, data.state.theta));
             setXHistory((prev) => appendClamped(prev, data.state.x));
+            setPeriodHistory((prev) =>
+              appendClamped(prev, (data.loop_stats?.period_us ?? 0) / 1000),
+            );
             setStateWindow((prev) => appendStateWindow(prev, data.state));
             setTicksReceived((n) => n + 1);
             setLastEvent(`tick ${data.tick}`);
@@ -161,8 +175,14 @@ export function useDashboardSocket() {
           if (isTickSnapshot(data)) {
             setSnapshot(data);
             setForceHistory((prev) => appendClamped(prev, data.force_safe_n));
+            setForceCmdHistory((prev) =>
+              appendClamped(prev, data.force_cmd_n ?? data.force_safe_n),
+            );
             setThetaHistory((prev) => appendClamped(prev, data.state.theta));
             setXHistory((prev) => appendClamped(prev, data.state.x));
+            setPeriodHistory((prev) =>
+              appendClamped(prev, (data.loop_stats?.period_us ?? 0) / 1000),
+            );
             setStateWindow((prev) => appendStateWindow(prev, data.state));
             setTicksReceived((n) => n + 1);
             setLastEvent(`tick ${data.tick} (legacy)`);
@@ -211,8 +231,10 @@ export function useDashboardSocket() {
     snapshot,
     hello,
     forceHistory,
+    forceCmdHistory,
     thetaHistory,
     xHistory,
+    periodHistory,
     stateWindow,
     status,
     runEnded,

@@ -2,6 +2,7 @@ import { CartChart } from "./components/CartChart";
 import { DebugPanel } from "./components/DebugPanel";
 import { ForceChart } from "./components/ForceChart";
 import { MetricsRow } from "./components/MetricsRow";
+import { PeriodChart } from "./components/PeriodChart";
 import { PoleView } from "./components/PoleView";
 import { SafetyBadge } from "./components/SafetyBadge";
 import { StatusBanner } from "./components/StatusBanner";
@@ -15,8 +16,10 @@ export function App() {
     snapshot,
     hello,
     forceHistory,
+    forceCmdHistory,
     thetaHistory,
     xHistory,
+    periodHistory,
     status,
     runEnded,
     endedReason,
@@ -25,6 +28,8 @@ export function App() {
 
   const phase = derivePhase(snapshot, status, runEnded);
   const live = status === "connected" && !runEnded && debug.ticksReceived > 0;
+  const loop = snapshot?.loop_stats;
+  const showLoop = (loop?.core_count ?? 0) > 0 || (loop?.hz ?? 0) > 0;
 
   return (
     <main className="app">
@@ -50,6 +55,47 @@ export function App() {
         </section>
       )}
 
+      {showLoop && loop && (
+        <section className="panel">
+          <h2>Loop timing</h2>
+          <p className="panel-sub">
+            Interval scheduler. A miss means safe force for a tick was still missing when the next tick fired.
+          </p>
+          <dl className="metrics-row">
+            <div>
+              <dt>Rate</dt>
+              <dd>{loop.hz > 0 ? `${loop.hz.toFixed(1)} Hz` : "—"}</dd>
+            </div>
+            <div>
+              <dt>Jitter p50 / p99 / max</dt>
+              <dd>
+                {(loop.jitter_p50_us / 1000).toFixed(2)} / {(loop.jitter_p99_us / 1000).toFixed(2)} /{" "}
+                {(loop.jitter_max_us / 1000).toFixed(2)} ms
+              </dd>
+            </div>
+            <div>
+              <dt>Pipeline misses</dt>
+              <dd>{loop.miss_count}</dd>
+            </div>
+            <div>
+              <dt>Compute</dt>
+              <dd>
+                {loop.compute_us > 0 ? `${(loop.compute_us / 1000).toFixed(2)} ms` : "—"}
+              </dd>
+            </div>
+            <div>
+              <dt>Cores</dt>
+              <dd>{loop.core_count}</dd>
+            </div>
+            <div>
+              <dt>Stress threads</dt>
+              <dd>{loop.stress_threads}</dd>
+            </div>
+          </dl>
+          <PeriodChart periodsMs={periodHistory} deadlineMs={(snapshot?.dt_secs ?? 0.01) * 1000} />
+        </section>
+      )}
+
       <section className="panel">
         <h2>Cart &amp; pole</h2>
         <PoleView state={snapshot?.state ?? null} />
@@ -68,9 +114,12 @@ export function App() {
 
       <section className="panel">
         <h2>Controller force</h2>
-        <p className="panel-sub">Force sent to the cart after the safety monitor</p>
-        <ForceChart values={forceHistory} />
-        <div className="readout">{snapshot?.force_safe_n.toFixed(2) ?? "—"} N</div>
+        <p className="panel-sub">Red is commanded force. Green is what safety forwards.</p>
+        <ForceChart commanded={forceCmdHistory} safe={forceHistory} />
+        <div className="readout">
+          {(snapshot?.force_cmd_n ?? snapshot?.force_safe_n ?? 0).toFixed(2)} N commanded ·{" "}
+          {snapshot?.force_safe_n.toFixed(2) ?? "—"} N safe
+        </div>
       </section>
 
       <section className="panel">

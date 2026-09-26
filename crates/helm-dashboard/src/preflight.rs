@@ -47,6 +47,10 @@ pub fn print_startup_banner(addr: SocketAddr, session: &SessionInfo) {
     eprintln!("websocket:     ws://{addr}/ws");
     match session.mode {
         "replay" => eprintln!("mode: replay (loops automatically)"),
+        "live" if session.backend == "fake-serial" => {
+            eprintln!("mode: live, simulated serial device (PTY), not physical hardware");
+            eprintln!("tip: keep this terminal open — closing it stops the server");
+        }
         "live" if session.backend == "hardware" => {
             eprintln!("mode: live hardware");
             eprintln!("tip: keep this terminal open — closing it stops the server");
