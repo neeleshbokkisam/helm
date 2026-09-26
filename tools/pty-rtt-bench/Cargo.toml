@@ -1,0 +1,11 @@
+[package]
+name = "pty-rtt-bench"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+tokio = { version = "1", features = ["fs", "io-util", "macros", "rt-multi-thread", "time"] }
+nix = { version = "0.29", features = ["ioctl", "term", "fs", "process"] }
