@@ -7,8 +7,8 @@ use tokio_util::sync::CancellationToken;
 use crate::bus::BusHandle;
 use crate::error::{BusError, HelmError, ModuleError};
 use crate::message::{
-    hz_from_period_us, percentile, pipeline_miss, topics, LoopStats, SafetyStatus, Tick, Timestamp,
-    LOOP_STATS_WINDOW,
+    hz_from_period_us, percentile, pipeline_miss, skipped_ticks, topics, LoopStats, SafetyStatus,
+    Tick, Timestamp, LOOP_STATS_WINDOW,
 };
 use crate::module::{Module, ModuleBus, ModuleContext};
 
@@ -161,6 +161,7 @@ fn spawn_tick_loop(
         let mut safety_rx = bus.subscribe_watch(&topics::SAFETY_STATUS).ok();
         let mut tick = 0u64;
         let mut miss_count = 0u64;
+        let mut skip_count = 0u64;
         let mut jitter_window: std::collections::VecDeque<i64> =
             std::collections::VecDeque::with_capacity(LOOP_STATS_WINDOW);
         let mut last_fire: Option<tokio::time::Instant> = None;
@@ -194,6 +195,7 @@ fn spawn_tick_loop(
             if miss {
                 miss_count = miss_count.saturating_add(1);
             }
+            skip_count = skip_count.saturating_add(skipped_ticks(period_us));
 
             tick += 1;
             let _ = bus.publish_watch(
@@ -241,6 +243,7 @@ fn spawn_tick_loop(
                     compute_us,
                     miss,
                     miss_count,
+                    skip_count,
                     hz: hz_from_period_us(period_us),
                     stress_threads,
                     core_count,
@@ -301,7 +304,7 @@ async fn wait_for_safety_tick(rx: &mut tokio::sync::watch::Receiver<SafetyStatus
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::message::{percentile, pipeline_miss, ModuleTopics};
+    use crate::message::{percentile, pipeline_miss, skipped_ticks, ModuleTopics};
     use crate::TopicBus;
     use async_trait::async_trait;
 
@@ -410,6 +413,15 @@ mod tests {
         assert!(!pipeline_miss(0, 0));
         assert!(!pipeline_miss(4, 4));
         assert!(pipeline_miss(4, 3));
+    }
+
+    #[test]
+    fn slack_under_15ms_is_not_a_skipped_tick() {
+        assert_eq!(skipped_ticks(10_267), 0);
+        assert_eq!(skipped_ticks(14_999), 0);
+        assert_eq!(skipped_ticks(15_000), 1);
+        assert_eq!(skipped_ticks(20_000), 1);
+        assert_eq!(skipped_ticks(25_000), 2);
     }
 
     #[test]

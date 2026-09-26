@@ -80,6 +80,7 @@ pub struct LoopStats {
     pub compute_us: u64,
     pub miss: bool,
     pub miss_count: u64,
+    pub skip_count: u64,
     pub hz: f64,
     pub stress_threads: u32,
     pub core_count: u32,
@@ -96,6 +97,7 @@ impl LoopStats {
         compute_us: 0,
         miss: false,
         miss_count: 0,
+        skip_count: 0,
         hz: 0.0,
         stress_threads: 0,
         core_count: 0,
@@ -111,6 +113,17 @@ impl Default for LoopStats {
 /// Safe force for `previous_tick` was not on the bus when the next tick fired.
 pub fn pipeline_miss(previous_tick: u64, safe_tick: u64) -> bool {
     previous_tick > 0 && safe_tick != previous_tick
+}
+
+/// 10 ms slots missed by a fire-to-fire gap. Under 15 ms is timer slack, not a skip.
+pub fn skipped_ticks(period_us: u64) -> u64 {
+    const SKIP_GAP_US: u64 = 15_000;
+    const PERIOD_US: u64 = 10_000;
+    if period_us < SKIP_GAP_US {
+        0
+    } else {
+        period_us.div_ceil(PERIOD_US).saturating_sub(1)
+    }
 }
 
 pub fn percentile(samples: &[i64], pct: f64) -> i64 {

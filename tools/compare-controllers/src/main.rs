@@ -139,7 +139,7 @@ fn main() {
     });
 
     println!("model: {}", model.display());
-    println!("trained linear policy, regressed onto the PD law, not the test fixture");
+    println!("linear policy trained by behavior cloning of the PD controller");
     println!("success = |theta| < 1 deg for 1 s within 10 s; dt = {DT} s; other state starts at 0");
     println!(
         "{:<10} {:>8} {:>7} {:>8} {:>10} {:>10} {:>8} {:>6}",

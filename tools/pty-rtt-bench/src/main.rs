@@ -40,7 +40,37 @@ fn byte_time(nbytes: usize) -> Option<Duration> {
     if baud == 0 {
         return None;
     }
-    Some(Duration::from_secs_f64(10.0 * nbytes as f64 / f64::from(baud)))
+    Some(Duration::from_secs_f64(
+        10.0 * nbytes as f64 / f64::from(baud),
+    ))
+}
+
+fn modeled_round_trip_ms(nbytes: usize, baud: u32) -> f64 {
+    if baud == 0 {
+        return 0.0;
+    }
+    2.0 * 10.0 * nbytes as f64 / f64::from(baud) * 1000.0
+}
+
+/// macOS sleep wakes a few milliseconds late. Sleep while the remainder is
+/// longer than that slack, then spin so the wait matches the byte time.
+fn wait_exact(delay: Duration) {
+    let deadline = Instant::now() + delay;
+    loop {
+        let now = Instant::now();
+        if now >= deadline {
+            return;
+        }
+        let left = deadline.saturating_duration_since(now);
+        if left > Duration::from_millis(8) {
+            std::thread::sleep(left - Duration::from_millis(6));
+        } else {
+            while Instant::now() < deadline {
+                std::hint::spin_loop();
+            }
+            return;
+        }
+    }
 }
 
 fn child_loop() -> ! {
@@ -54,7 +84,7 @@ fn child_loop() -> ! {
         }
         child_work(&buf[..n]);
         if let Some(delay) = byte_time(n) {
-            std::thread::sleep(delay);
+            wait_exact(delay);
         }
         stdout.write_all(&buf[..n]).unwrap();
         stdout.flush().unwrap();
@@ -139,7 +169,7 @@ async fn main() {
     for _ in 0..iterations {
         let t0 = Instant::now();
         if let Some(delay) = byte_time(PAYLOAD.len()) {
-            tokio::time::sleep(delay).await;
+            wait_exact(delay);
         }
         master_file.write_all(&PAYLOAD).await.unwrap();
         master_file.flush().await.unwrap();
@@ -158,7 +188,9 @@ async fn main() {
     println!("bench: tokio async parent, forked child, 32-byte echo + tiny work");
     println!("mode: {mode}");
     if mode == "modeled" {
+        let modeled_ms = modeled_round_trip_ms(PAYLOAD.len(), baud);
         println!("baud: {baud}");
+        println!("modeled_ms: {modeled_ms:.4}");
         println!("note: modeled 8N1 byte time on a PTY, not a UART");
     } else {
         println!("note: raw PTY, termios baud is not set");

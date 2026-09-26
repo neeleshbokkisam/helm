@@ -26,6 +26,7 @@ export interface LoopStats {
   compute_us: number;
   miss: boolean;
   miss_count: number;
+  skip_count?: number;
   hz: number;
   stress_threads: number;
   core_count: number;

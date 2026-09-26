@@ -59,7 +59,8 @@ export function App() {
         <section className="panel">
           <h2>Loop timing</h2>
           <p className="panel-sub">
-            Interval scheduler. A miss means safe force for a tick was still missing when the next tick fired.
+            Rate is 1 / measured gap. About 10.3 ms of timer slack reads as ~97 Hz, not a skip.
+            A skip is a gap of at least 15 ms. A pipeline miss means safe force was late.
           </p>
           <dl className="metrics-row">
             <div>
@@ -72,6 +73,10 @@ export function App() {
                 {(loop.jitter_p50_us / 1000).toFixed(2)} / {(loop.jitter_p99_us / 1000).toFixed(2)} /{" "}
                 {(loop.jitter_max_us / 1000).toFixed(2)} ms
               </dd>
+            </div>
+            <div>
+              <dt>Skipped ticks</dt>
+              <dd>{loop.skip_count ?? 0}</dd>
             </div>
             <div>
               <dt>Pipeline misses</dt>

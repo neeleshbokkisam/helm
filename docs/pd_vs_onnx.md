@@ -1,6 +1,6 @@
-# PD vs trained ONNX
+# PD vs behavior-cloned linear policy
 
-`models/cartpole.onnx` is a linear head trained with `tools/train/train.py` to match the PD law `120θ + 20θ̇ + x + 2ẋ`, then clamped to ±20 N. It is not `crates/helm-modules/tests/fixtures/cartpole_test.onnx`, which is only a unit-test stand-in.
+`models/cartpole.onnx` is a linear policy trained by behavior cloning of the PD controller (`120θ + 20θ̇ + x + 2ẋ`), then clamped to ±20 N. The training script is `tools/train/train.py`. `crates/helm-modules/tests/fixtures/cartpole_test.onnx` stays a unit-test stand-in.
 
 Training stopped at step 3703 when 10 eval episodes from `|θ|` in `[0.03, 0.08]` rad stayed inside `|θ| < 0.2` for 500 steps and the force error against PD was under 0.5 N. The largest grid error at that checkpoint was about 0.50 N at `|θ| = 0.08`.
 
@@ -11,7 +11,7 @@ cargo run -p compare-controllers -- --metrics docs/pd_vs_onnx.csv --trace docs/p
 python3 tools/plot_pd_vs_onnx.py
 ```
 
-Both balance every initial condition below. The trained policy is a slightly soft copy of PD: it settles 10–20 ms later and spends a bit less effort. It does not beat PD.
+Both balance every initial condition below. The fitted gains are slightly smaller than the PD gains, so effort is a bit lower and settling is a few hundredths of a second later.
 
 | controller | theta0 (rad) | success | settle (s) | overshoot (rad) | effort | peak \|F\| (N) | sat |
 | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: |
